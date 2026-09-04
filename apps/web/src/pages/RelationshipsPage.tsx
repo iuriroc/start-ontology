@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { RELATABLE_LABELS, type OntologyLabel } from "@ontology-builder/shared";
+import { RELATABLE_LABELS, type OntologyLabel, RESOURCE_LIST } from "@ontology-builder/shared";
 import { ApiError, api } from "../api/client";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ElementPicker } from "../components/ElementPicker";
@@ -19,6 +19,13 @@ interface RelationshipRecord {
 }
 
 const CARDINALITIES = ["ONE_TO_ONE", "ONE_TO_MANY", "MANY_TO_ONE", "MANY_TO_MANY"];
+
+const CARDINALITY_LABELS: Record<string, string> = {
+  ONE_TO_ONE: "Um para Um",
+  ONE_TO_MANY: "Um para Muitos",
+  MANY_TO_ONE: "Muitos para Um",
+  MANY_TO_MANY: "Muitos para Muitos"
+};
 
 /** Section 32's "FROM / RELATIONSHIP / TO" builder. Kept as its own page
  * instead of the generic ResourcePage because it needs cross-label
@@ -83,7 +90,7 @@ export function RelationshipsPage() {
               >
                 {RELATABLE_LABELS.map((l) => (
                   <option key={l} value={l}>
-                    {l}
+                    {RESOURCE_LIST.find((r) => r.label === l)?.displayName || l}
                   </option>
                 ))}
               </select>
@@ -106,7 +113,7 @@ export function RelationshipsPage() {
               >
                 {CARDINALITIES.map((c) => (
                   <option key={c} value={c}>
-                    {c}
+                    {CARDINALITY_LABELS[c]}
                   </option>
                 ))}
               </select>
@@ -119,7 +126,7 @@ export function RelationshipsPage() {
               >
                 {RELATABLE_LABELS.map((l) => (
                   <option key={l} value={l}>
-                    {l}
+                    {RESOURCE_LIST.find((r) => r.label === l)?.displayName || l}
                   </option>
                 ))}
               </select>

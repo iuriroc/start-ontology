@@ -6,7 +6,7 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) => (isActive ? "activ
 export function Sidebar() {
   return (
     <nav className="sidebar">
-      <h1>ESTRUTURADOR</h1>
+      <h1>Ontology Builder</h1>
 
       <NavLink to="/" end className={navLinkClass}>
         Visão Geral

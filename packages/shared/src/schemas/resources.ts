@@ -26,10 +26,10 @@ export const RESOURCE_LIST: ResourceMeta[] = [
     path: "capabilities",
     displayName: "Habilidades"
   },
-  { key: "agents", label: "Agent", path: "agents", displayName: "Participantes" },
+  { key: "agents", label: "Agent", path: "agents", displayName: "Agentes" },
   { key: "policies", label: "Policy", path: "policies", displayName: "Diretrizes" },
   { key: "issues", label: "Issue", path: "issues", displayName: "Ocorrências" },
-  { key: "handoffs", label: "Handoff", path: "handoffs", displayName: "Repasses" },
+  { key: "handoffs", label: "Handoff", path: "handoffs", displayName: "Handoff" },
   { key: "decisions", label: "Decision", path: "decisions", displayName: "Decisões" },
   { key: "executions", label: "Execution", path: "executions", displayName: "Atividades" },
   {
