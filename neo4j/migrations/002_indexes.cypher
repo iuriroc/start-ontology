@@ -1,0 +1,29 @@
+// Indexes on the fields every list endpoint actually filters/searches by:
+// name (search) and status (every resource's list query accepts a status filter).
+// Deliberately not indexing every property — only what's queried.
+CREATE INDEX entity_name_idx IF NOT EXISTS FOR (n:Entity) ON (n.name);
+CREATE INDEX entity_status_idx IF NOT EXISTS FOR (n:Entity) ON (n.status);
+CREATE INDEX concept_name_idx IF NOT EXISTS FOR (n:Concept) ON (n.name);
+CREATE INDEX concept_status_idx IF NOT EXISTS FOR (n:Concept) ON (n.status);
+CREATE INDEX relationshipdefinition_name_idx IF NOT EXISTS FOR (n:RelationshipDefinition) ON (n.name);
+CREATE INDEX relationshipdefinition_status_idx IF NOT EXISTS FOR (n:RelationshipDefinition) ON (n.status);
+CREATE INDEX rule_name_idx IF NOT EXISTS FOR (n:Rule) ON (n.name);
+CREATE INDEX rule_status_idx IF NOT EXISTS FOR (n:Rule) ON (n.status);
+CREATE INDEX state_name_idx IF NOT EXISTS FOR (n:State) ON (n.name);
+CREATE INDEX state_status_idx IF NOT EXISTS FOR (n:State) ON (n.status);
+CREATE INDEX capability_name_idx IF NOT EXISTS FOR (n:Capability) ON (n.name);
+CREATE INDEX capability_status_idx IF NOT EXISTS FOR (n:Capability) ON (n.status);
+CREATE INDEX agent_name_idx IF NOT EXISTS FOR (n:Agent) ON (n.name);
+CREATE INDEX agent_status_idx IF NOT EXISTS FOR (n:Agent) ON (n.status);
+CREATE INDEX policy_name_idx IF NOT EXISTS FOR (n:Policy) ON (n.name);
+CREATE INDEX policy_status_idx IF NOT EXISTS FOR (n:Policy) ON (n.status);
+CREATE INDEX issue_name_idx IF NOT EXISTS FOR (n:Issue) ON (n.name);
+CREATE INDEX issue_status_idx IF NOT EXISTS FOR (n:Issue) ON (n.status);
+CREATE INDEX handoff_name_idx IF NOT EXISTS FOR (n:Handoff) ON (n.name);
+CREATE INDEX handoff_status_idx IF NOT EXISTS FOR (n:Handoff) ON (n.status);
+CREATE INDEX decision_name_idx IF NOT EXISTS FOR (n:Decision) ON (n.name);
+CREATE INDEX decision_status_idx IF NOT EXISTS FOR (n:Decision) ON (n.status);
+CREATE INDEX execution_name_idx IF NOT EXISTS FOR (n:Execution) ON (n.name);
+CREATE INDEX execution_status_idx IF NOT EXISTS FOR (n:Execution) ON (n.status);
+CREATE INDEX learningevent_name_idx IF NOT EXISTS FOR (n:LearningEvent) ON (n.name);
+CREATE INDEX ontologyversion_status_idx IF NOT EXISTS FOR (n:OntologyVersion) ON (n.status);

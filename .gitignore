@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+.env
+*.local
+backups/*.zip
+neo4j/data/
+neo4j/logs/
+neo4j/import/
+neo4j/plugins/
+coverage/
+.DS_Store
+*.log
+*.tsbuildinfo
