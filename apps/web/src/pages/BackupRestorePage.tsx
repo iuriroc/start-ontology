@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { ApiError, api, uploadImport } from "../api/client";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { HelpPanel } from "../components/HelpPanel";
 
 interface BackupResult {
   filename: string;
@@ -38,7 +39,7 @@ export function BackupRestorePage() {
       const result = await api.post<BackupResult>("/backup");
       setBackupResult(result);
     } catch (err) {
-      setBackupError(err instanceof Error ? err.message : "Backup failed");
+      setBackupError(err instanceof Error ? err.message : "Não foi possível gerar a cópia de segurança");
     } finally {
       setCreatingBackup(false);
     }
@@ -55,7 +56,7 @@ export function BackupRestorePage() {
       const summary = await uploadImport<ImportSummary>(file);
       setImportSummary(summary);
     } catch (err) {
-      setImportError(err instanceof ApiError ? err.message : "Import validation failed");
+      setImportError(err instanceof ApiError ? err.message : "Não foi possível validar o arquivo");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -75,55 +76,66 @@ export function BackupRestorePage() {
         mode,
         confirmReplace: mode === "replace"
       });
-      setRestoreResult(result.restored ? `Ontology restored (${mode} mode).` : "Restore did not complete.");
+      setRestoreResult(
+        result.restored
+          ? `Ontologia restaurada (modo ${mode === "merge" ? "mesclar" : "substituir"}).`
+          : "A restauração não foi concluída."
+      );
       setImportSummary(null);
     } catch (err) {
-      setImportError(err instanceof Error ? err.message : "Restore failed");
+      setImportError(err instanceof Error ? err.message : "Não foi possível restaurar");
     }
   };
 
   return (
     <div>
       <div className="page-header">
-        <h2>Backup &amp; Restore</h2>
+        <h2>💾 Cópias de Segurança</h2>
       </div>
 
+      <HelpPanel
+        title='O que é "Cópia de Segurança"?'
+        text="Um arquivo .zip com toda a sua ontologia — dá para guardar, restaurar depois, ou levar para outro servidor. Nada aqui muda sua ontologia atual até você confirmar uma restauração."
+        example="Ex.: fazer backup antes de uma grande limpeza, ou transferir a ontologia para outro ambiente"
+      />
+
       <div className="panel" style={{ padding: 18, marginBottom: 20 }}>
-        <h3 style={{ marginTop: 0 }}>Backup</h3>
+        <h3 style={{ marginTop: 0 }}>Gerar cópia de segurança</h3>
         <p className="muted">
-          Generates ontology.json, ontology.cypher and manifest.json (with checksum), zipped together and
-          saved on the server under <code>backups/</code>.
+          Gera o arquivo completo (dados + script de reconstrução + verificação de integridade), salvo no
+          servidor em <code>backups/</code>.
         </p>
         <div style={{ display: "flex", gap: 10 }}>
           <button className="btn btn-primary" onClick={() => void createBackup()} disabled={creatingBackup}>
-            {creatingBackup ? "Creating…" : "Create Backup"}
+            {creatingBackup ? "Gerando…" : "Gerar cópia de segurança"}
           </button>
           <a className="btn" href={`${api.baseUrl}/api/export`}>
-            Download Export (.zip)
+            Baixar cópia (.zip)
           </a>
         </div>
         {backupError && <div className="banner banner-error">{backupError}</div>}
         {backupResult && (
           <div className="banner banner-info">
-            Saved {backupResult.filename} ({Math.round(backupResult.sizeBytes / 1024)} KB) to {backupResult.path}
+            {backupResult.filename} salvo ({Math.round(backupResult.sizeBytes / 1024)} KB) em{" "}
+            {backupResult.path}
           </div>
         )}
       </div>
 
       <div className="panel" style={{ padding: 18 }}>
-        <h3 style={{ marginTop: 0 }}>Restore</h3>
+        <h3 style={{ marginTop: 0 }}>Restaurar</h3>
         <p className="muted">
-          Upload a backup .zip to validate it (file, manifest, checksum, schema, ids, relationships, versions),
-          then choose merge or replace to commit it to Neo4j.
+          Envie um arquivo .zip para conferir se ele é válido (arquivo, integridade, formato, ids, conexões,
+          versões) antes de decidir como aplicá-lo.
         </p>
         <input ref={fileInputRef} type="file" accept=".zip" onChange={(e) => void handleFileSelected(e)} />
-        {uploading && <p className="muted">Validating…</p>}
+        {uploading && <p className="muted">Validando…</p>}
         {importError && <div className="banner banner-error">{importError}</div>}
 
         {importSummary && (
           <div style={{ marginTop: 14 }}>
             <div className="banner banner-info">
-              Valid backup — {importSummary.metadata.version ?? "unversioned"}, created{" "}
+              Arquivo válido — {importSummary.metadata.version ?? "sem versão"}, gerado em{" "}
               {new Date(importSummary.metadata.createdAt).toLocaleString()}
             </div>
             <table>
@@ -138,15 +150,15 @@ export function BackupRestorePage() {
             </table>
 
             <div className="field" style={{ marginTop: 14 }}>
-              <label>Mode</label>
+              <label>Como aplicar</label>
               <select value={mode} onChange={(e) => setMode(e.target.value as "merge" | "replace")}>
-                <option value="merge">Merge (upsert by id, keep everything else)</option>
-                <option value="replace">Replace (wipe the current ontology first)</option>
+                <option value="merge">Mesclar (atualiza pelo id, mantém o resto como está)</option>
+                <option value="replace">Substituir (apaga a ontologia atual antes de restaurar)</option>
               </select>
             </div>
             <div className="form-actions">
               <button className={mode === "replace" ? "btn btn-danger" : "btn btn-primary"} onClick={() => void runRestore(false)}>
-                Restore
+                Restaurar
               </button>
             </div>
           </div>
@@ -157,9 +169,9 @@ export function BackupRestorePage() {
 
       {confirmingReplace && (
         <ConfirmDialog
-          title="Replace the entire ontology?"
-          message="This deletes every current ontology element before restoring from the backup. This cannot be undone."
-          confirmLabel="Replace"
+          title="Substituir toda a ontologia?"
+          message="Isso apaga tudo o que existe hoje antes de restaurar a partir do arquivo. Não é possível desfazer."
+          confirmLabel="Substituir"
           danger
           onCancel={() => setConfirmingReplace(false)}
           onConfirm={() => void runRestore(true)}

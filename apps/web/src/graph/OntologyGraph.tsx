@@ -11,9 +11,13 @@ import ReactFlow, {
   useNodesState
 } from "reactflow";
 import "reactflow/dist/style.css";
+import { RESOURCE_LIST } from "@ontology-builder/shared";
 import { ApiError, api } from "../api/client";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { HelpPanel } from "../components/HelpPanel";
 import { colorFor } from "./nodeColors";
+
+const displayNameFor = (type: string) => RESOURCE_LIST.find((r) => r.label === type)?.displayName ?? type;
 
 interface ApiNode {
   id: string;
@@ -91,7 +95,7 @@ export function OntologyGraph() {
       setEdges(flowEdges);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load graph");
+      setError(err instanceof Error ? err.message : "Não foi possível carregar o mapa");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -144,11 +148,16 @@ export function OntologyGraph() {
   return (
     <div>
       <div className="page-header">
-        <h2>Graph View</h2>
+        <h2>🕸️ Graph Studio</h2>
         <button className="btn" onClick={() => void load()}>
-          Refresh
+          Atualizar
         </button>
       </div>
+      <HelpPanel
+        title='O que é o "Graph Studio"?'
+        text="O mapa visual da sua ontologia: cada bloco vira um cartão colorido, e cada conexão vira uma linha com o tipo escrito nela. Arraste para organizar — a posição fica salva."
+        example="Clique num cartão para ver seus detalhes, ou numa linha para excluir aquela conexão."
+      />
       {error && <div className="banner banner-error">{error}</div>}
       <div style={{ display: "flex", gap: 16 }}>
         <div className="graph-container" style={{ flex: 1 }}>
@@ -168,15 +177,15 @@ export function OntologyGraph() {
           </ReactFlow>
         </div>
         <div className="panel" style={{ width: 280, padding: 14, flexShrink: 0 }}>
-          <h4 style={{ marginTop: 0 }}>Legend</h4>
+          <h4 style={{ marginTop: 0 }}>Legenda</h4>
           {legend.map((type) => (
             <div key={type} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, fontSize: 12 }}>
               <span style={{ width: 10, height: 10, borderRadius: 3, background: colorFor(type), display: "inline-block" }} />
-              {type}
+              {displayNameFor(type)}
             </div>
           ))}
-          <h4>Selected node</h4>
-          {!selected && <p className="muted">Click a node to inspect it.</p>}
+          <h4>Item selecionado</h4>
+          {!selected && <p className="muted">Clique num cartão para ver seus detalhes.</p>}
           {selected && (
             <pre style={{ fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
               {JSON.stringify(selected.data, null, 2)}
@@ -187,9 +196,9 @@ export function OntologyGraph() {
 
       {edgeToDelete && (
         <ConfirmDialog
-          title="Delete relationship?"
-          message={`Delete the ${edgeToDelete.label} relationship?`}
-          confirmLabel="Delete"
+          title="Excluir esta conexão?"
+          message={`Excluir a conexão do tipo "${edgeToDelete.label}"?`}
+          confirmLabel="Excluir"
           danger
           onCancel={() => setEdgeToDelete(null)}
           onConfirm={() => void confirmDeleteEdge()}

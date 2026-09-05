@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { RESOURCE_LIST } from "@ontology-builder/shared";
 import { api } from "../api/client";
 import { StatusBadge } from "../components/StatusBadge";
 
@@ -18,22 +20,10 @@ interface ValidationResponse {
   issues: ValidationIssue[];
 }
 
-const LABEL_DISPLAY: Record<string, string> = {
-  Entity: "Entities",
-  Concept: "Concepts",
-  RelationshipDefinition: "Relationships",
-  Rule: "Rules",
-  State: "States",
-  Capability: "Capabilities",
-  Agent: "Agents",
-  Policy: "Policies",
-  Issue: "Issues",
-  Handoff: "Handoffs",
-  Decision: "Decisions",
-  Execution: "Executions",
-  LearningEvent: "Learning Events",
-  OntologyVersion: "Versions"
-};
+const LABEL_META: Record<string, { name: string; icon: string }> = Object.fromEntries(
+  RESOURCE_LIST.map((r) => [r.label, { name: r.displayName, icon: r.icon }])
+);
+LABEL_META.OntologyVersion = { name: "Versões", icon: "🏷️" };
 
 /** Section 44: counts + current version + on-demand structural validation. */
 export function Dashboard() {
@@ -46,7 +36,7 @@ export function Dashboard() {
     api
       .get<StatsResponse>("/ontology")
       .then(setStats)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load stats"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Não foi possível carregar as estatísticas"));
   }, []);
 
   const runValidation = async () => {
@@ -55,36 +45,49 @@ export function Dashboard() {
       const result = await api.get<ValidationResponse>("/ontology/validate");
       setValidation(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Validation failed");
+      setError(err instanceof Error ? err.message : "Não foi possível validar a ontologia");
     } finally {
       setValidating(false);
     }
   };
 
+  const isEmpty = stats ? Object.values(stats.counts).every((c) => c === 0) : false;
+
   return (
     <div>
       <div className="page-header">
-        <h2>Dashboard</h2>
+        <h2>📊 Visão Geral</h2>
         <button className="btn btn-primary" onClick={() => void runValidation()} disabled={validating}>
-          {validating ? "Validating…" : "Validate Ontology"}
+          {validating ? "Validando…" : "Validar Ontologia"}
         </button>
       </div>
 
       {error && <div className="banner banner-error">{error}</div>}
+
+      {isEmpty && (
+        <div className="banner banner-info" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span>Sua ontologia ainda está vazia. Que tal um tour rápido para criar o primeiro cadastro e a primeira conexão?</span>
+          <Link to="/wizard" className="btn btn-primary" style={{ textDecoration: "none", marginLeft: 14 }}>
+            🪄 Começar tour guiado
+          </Link>
+        </div>
+      )}
 
       <div className="stat-grid">
         {stats &&
           Object.entries(stats.counts).map(([label, count]) => (
             <div className="stat-card" key={label}>
               <div className="value">{count}</div>
-              <div className="label">{LABEL_DISPLAY[label] ?? label}</div>
+              <div className="label">
+                {LABEL_META[label]?.icon} {LABEL_META[label]?.name ?? label}
+              </div>
             </div>
           ))}
       </div>
 
       <div className="panel" style={{ padding: 18, marginBottom: 20 }}>
         <p>
-          <strong>Ontology Version:</strong> {stats?.currentVersion ?? "none yet"}
+          <strong>Versão atual da ontologia:</strong> {stats?.currentVersion ?? "nenhuma ainda"}
         </p>
       </div>
 
@@ -93,14 +96,14 @@ export function Dashboard() {
           <p>
             <strong>Status:</strong> <StatusBadge status={validation.status} />
           </p>
-          {validation.issues.length === 0 && <p className="muted">No structural issues found.</p>}
+          {validation.issues.length === 0 && <p className="muted">Nenhum problema estrutural encontrado.</p>}
           {validation.issues.length > 0 && (
             <table>
               <thead>
                 <tr>
-                  <th>Severity</th>
-                  <th>Code</th>
-                  <th>Message</th>
+                  <th>Gravidade</th>
+                  <th>Código</th>
+                  <th>Mensagem</th>
                 </tr>
               </thead>
               <tbody>

@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { RELATABLE_LABELS, type OntologyLabel, RESOURCE_LIST } from "@ontology-builder/shared";
+import { RELATABLE_LABELS, RESOURCE_LIST, type OntologyLabel } from "@ontology-builder/shared";
 import { ApiError, api } from "../api/client";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ElementPicker } from "../components/ElementPicker";
+import { HelpPanel } from "../components/HelpPanel";
 import { StatusBadge } from "../components/StatusBadge";
 import { useResourceList } from "../hooks/useResource";
 
@@ -27,6 +28,9 @@ const CARDINALITY_LABELS: Record<string, string> = {
   MANY_TO_MANY: "Muitos para Muitos"
 };
 
+const meta = RESOURCE_LIST.find((r) => r.key === "relationships")!;
+const displayNameFor = (label: OntologyLabel) => RESOURCE_LIST.find((r) => r.label === label)?.displayName ?? label;
+
 /** Section 32's "FROM / RELATIONSHIP / TO" builder. Kept as its own page
  * instead of the generic ResourcePage because it needs cross-label
  * endpoint pickers, not plain text fields. */
@@ -48,7 +52,7 @@ export function RelationshipsPage() {
     e.preventDefault();
     setFormError(null);
     if (!form.name || !form.type || !form.sourceId || !form.targetId) {
-      setFormError("Fill in name, relationship type, source and target");
+      setFormError("Preencha nome, tipo de conexão, origem e destino");
       return;
     }
     try {
@@ -56,7 +60,7 @@ export function RelationshipsPage() {
       setForm((f) => ({ ...f, name: "", type: "", sourceId: "", targetId: "" }));
       await refresh();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to create relationship");
+      setFormError(err instanceof Error ? err.message : "Não foi possível criar a conexão");
     }
   };
 
@@ -76,21 +80,25 @@ export function RelationshipsPage() {
   return (
     <div>
       <div className="page-header">
-        <h2>Relationships</h2>
+        <h2>
+          <span className="nav-icon">{meta.icon}</span> {meta.displayName}
+        </h2>
       </div>
+
+      <HelpPanel title={`O que é "${meta.displayName}"?`} text={meta.helpText} example={meta.example} />
 
       <div className="panel" style={{ padding: 18, marginBottom: 20 }}>
         <form onSubmit={submit}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
             <div className="field">
-              <label>From</label>
+              <label>De onde parte</label>
               <select
                 value={form.sourceLabel}
                 onChange={(e) => setForm((f) => ({ ...f, sourceLabel: e.target.value as OntologyLabel, sourceId: "" }))}
               >
                 {RELATABLE_LABELS.map((l) => (
                   <option key={l} value={l}>
-                    {RESOURCE_LIST.find((r) => r.label === l)?.displayName || l}
+                    {displayNameFor(l)}
                   </option>
                 ))}
               </select>
@@ -101,9 +109,9 @@ export function RelationshipsPage() {
               />
             </div>
             <div className="field">
-              <label>Relationship</label>
+              <label>Tipo de conexão</label>
               <input
-                placeholder="e.g. OWNS"
+                placeholder="ex.: POSSUI"
                 value={form.type}
                 onChange={(e) => setForm((f) => ({ ...f, type: e.target.value, name: f.name || e.target.value }))}
               />
@@ -119,14 +127,14 @@ export function RelationshipsPage() {
               </select>
             </div>
             <div className="field">
-              <label>To</label>
+              <label>Para onde vai</label>
               <select
                 value={form.targetLabel}
                 onChange={(e) => setForm((f) => ({ ...f, targetLabel: e.target.value as OntologyLabel, targetId: "" }))}
               >
                 {RELATABLE_LABELS.map((l) => (
                   <option key={l} value={l}>
-                    {RESOURCE_LIST.find((r) => r.label === l)?.displayName || l}
+                    {displayNameFor(l)}
                   </option>
                 ))}
               </select>
@@ -138,13 +146,13 @@ export function RelationshipsPage() {
             </div>
           </div>
           <div className="field">
-            <label>Name</label>
+            <label>Nome desta conexão</label>
             <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           </div>
           {formError && <div className="banner banner-error">{formError}</div>}
           <div className="form-actions">
             <button type="submit" className="btn btn-primary">
-              Create relationship
+              Criar conexão
             </button>
           </div>
         </form>
@@ -156,11 +164,11 @@ export function RelationshipsPage() {
         <table>
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Type</th>
-              <th>From</th>
-              <th>To</th>
-              <th>Cardinality</th>
+              <th>Nome</th>
+              <th>Tipo</th>
+              <th>De</th>
+              <th>Para</th>
+              <th>Multiplicidade</th>
               <th>Status</th>
               <th></th>
             </tr>
@@ -168,7 +176,14 @@ export function RelationshipsPage() {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={7}>Loading…</td>
+                <td colSpan={7}>Carregando…</td>
+              </tr>
+            )}
+            {!loading && items.length === 0 && (
+              <tr>
+                <td colSpan={7} className="muted">
+                  Nenhuma conexão ainda. Crie a primeira acima.
+                </td>
               </tr>
             )}
             {items.map((r) => (
@@ -178,18 +193,18 @@ export function RelationshipsPage() {
                   <code>{r.type}</code>
                 </td>
                 <td>
-                  {r.sourceLabel}:{r.sourceId.slice(0, 8)}
+                  {displayNameFor(r.sourceLabel)}:{r.sourceId.slice(0, 8)}
                 </td>
                 <td>
-                  {r.targetLabel}:{r.targetId.slice(0, 8)}
+                  {displayNameFor(r.targetLabel)}:{r.targetId.slice(0, 8)}
                 </td>
-                <td>{r.cardinality}</td>
+                <td>{CARDINALITY_LABELS[r.cardinality] ?? r.cardinality}</td>
                 <td>
                   <StatusBadge status={r.status} />
                 </td>
                 <td>
                   <button className="btn btn-danger" onClick={() => void attemptDelete(r.id, false)}>
-                    Delete
+                    Excluir
                   </button>
                 </td>
               </tr>
@@ -200,9 +215,9 @@ export function RelationshipsPage() {
 
       {pendingDelete && (
         <ConfirmDialog
-          title="This relationship is referenced elsewhere"
-          message={`This relationship has ${pendingDelete.relCount} related edge(s) (e.g. version membership). Delete anyway?`}
-          confirmLabel="Delete anyway"
+          title="Esta conexão está referenciada em outro lugar"
+          message={`Esta conexão tem ${pendingDelete.relCount} vínculo(s) associado(s) (ex.: pertencer a uma versão). Excluir mesmo assim?`}
+          confirmLabel="Excluir mesmo assim"
           danger
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => void attemptDelete(pendingDelete.id, true)}

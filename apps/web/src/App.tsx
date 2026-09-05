@@ -4,6 +4,7 @@ import { OntologyGraph } from "./graph/OntologyGraph";
 import { BackupRestorePage } from "./pages/BackupRestorePage";
 import { Dashboard } from "./pages/Dashboard";
 import { HandoffsPage } from "./pages/HandoffsPage";
+import { OnboardingWizard } from "./pages/OnboardingWizard";
 import { RelationshipsPage } from "./pages/RelationshipsPage";
 import { ResourcePage } from "./pages/ResourcePage";
 import { VersionsPage } from "./pages/VersionsPage";
@@ -13,6 +14,7 @@ export function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
+        <Route path="wizard" element={<OnboardingWizard />} />
         <Route path="ontology/relationships" element={<RelationshipsPage />} />
         <Route path="ontology/handoffs" element={<HandoffsPage />} />
         <Route path="ontology/:resource" element={<ResourcePage />} />

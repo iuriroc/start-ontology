@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { RESOURCE_LIST } from "@ontology-builder/shared";
 import { ApiError, api } from "../api/client";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ElementPicker } from "../components/ElementPicker";
+import { HelpPanel } from "../components/HelpPanel";
 import { StatusBadge } from "../components/StatusBadge";
 import { useResourceList } from "../hooks/useResource";
 
@@ -15,6 +17,8 @@ interface HandoffRecord {
   priority: number;
   status: string;
 }
+
+const meta = RESOURCE_LIST.find((r) => r.key === "handoffs")!;
 
 /** Section 17: Agent A -[:HANDOFF_TO]-> Agent B, with reason/condition/priority. */
 export function HandoffsPage() {
@@ -34,7 +38,7 @@ export function HandoffsPage() {
     e.preventDefault();
     setFormError(null);
     if (!form.name || !form.fromAgentId || !form.toAgentId) {
-      setFormError("Fill in name, from agent and to agent");
+      setFormError("Preencha nome, agente de origem e agente de destino");
       return;
     }
     try {
@@ -42,7 +46,7 @@ export function HandoffsPage() {
       setForm((f) => ({ ...f, name: "", fromAgentId: "", toAgentId: "", reason: "", condition: "" }));
       await refresh();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to create handoff");
+      setFormError(err instanceof Error ? err.message : "Não foi possível criar o handoff");
     }
   };
 
@@ -62,35 +66,39 @@ export function HandoffsPage() {
   return (
     <div>
       <div className="page-header">
-        <h2>Handoffs</h2>
+        <h2>
+          <span className="nav-icon">{meta.icon}</span> {meta.displayName}
+        </h2>
       </div>
+
+      <HelpPanel title={`O que é "${meta.displayName}"?`} text={meta.helpText} example={meta.example} />
 
       <div className="panel" style={{ padding: 18, marginBottom: 20 }}>
         <form onSubmit={submit}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div className="field">
-              <label>From Agent</label>
+              <label>Agente que repassa</label>
               <ElementPicker label="Agent" value={form.fromAgentId} onChange={(id) => setForm((f) => ({ ...f, fromAgentId: id }))} />
             </div>
             <div className="field">
-              <label>To Agent</label>
+              <label>Agente que recebe</label>
               <ElementPicker label="Agent" value={form.toAgentId} onChange={(id) => setForm((f) => ({ ...f, toAgentId: id }))} />
             </div>
           </div>
           <div className="field">
-            <label>Name</label>
+            <label>Nome</label>
             <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           </div>
           <div className="field">
-            <label>Reason</label>
+            <label>Motivo</label>
             <textarea value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} />
           </div>
           <div className="field">
-            <label>Condition</label>
+            <label>Condição</label>
             <textarea value={form.condition} onChange={(e) => setForm((f) => ({ ...f, condition: e.target.value }))} />
           </div>
           <div className="field">
-            <label>Priority</label>
+            <label>Prioridade</label>
             <input
               type="number"
               value={form.priority}
@@ -100,7 +108,7 @@ export function HandoffsPage() {
           {formError && <div className="banner banner-error">{formError}</div>}
           <div className="form-actions">
             <button type="submit" className="btn btn-primary">
-              Create handoff
+              Criar handoff
             </button>
           </div>
         </form>
@@ -112,8 +120,8 @@ export function HandoffsPage() {
         <table>
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Priority</th>
+              <th>Nome</th>
+              <th>Prioridade</th>
               <th>Status</th>
               <th></th>
             </tr>
@@ -121,7 +129,14 @@ export function HandoffsPage() {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={4}>Loading…</td>
+                <td colSpan={4}>Carregando…</td>
+              </tr>
+            )}
+            {!loading && items.length === 0 && (
+              <tr>
+                <td colSpan={4} className="muted">
+                  Nenhum handoff ainda. Crie o primeiro acima.
+                </td>
               </tr>
             )}
             {items.map((h) => (
@@ -133,7 +148,7 @@ export function HandoffsPage() {
                 </td>
                 <td>
                   <button className="btn btn-danger" onClick={() => void attemptDelete(h.id, false)}>
-                    Delete
+                    Excluir
                   </button>
                 </td>
               </tr>
@@ -144,9 +159,9 @@ export function HandoffsPage() {
 
       {pendingDelete && (
         <ConfirmDialog
-          title="This handoff is referenced elsewhere"
-          message={`This handoff has ${pendingDelete.relCount} related edge(s). Delete anyway?`}
-          confirmLabel="Delete anyway"
+          title="Este handoff está referenciado em outro lugar"
+          message={`Este handoff tem ${pendingDelete.relCount} vínculo(s) associado(s). Excluir mesmo assim?`}
+          confirmLabel="Excluir mesmo assim"
           danger
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => void attemptDelete(pendingDelete.id, true)}

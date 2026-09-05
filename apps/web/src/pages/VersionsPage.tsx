@@ -2,6 +2,7 @@ import { useState } from "react";
 import { RESOURCE_LIST, type OntologyLabel } from "@ontology-builder/shared";
 import { api } from "../api/client";
 import { ElementPicker } from "../components/ElementPicker";
+import { HelpPanel } from "../components/HelpPanel";
 import { StatusBadge } from "../components/StatusBadge";
 import { useResourceList } from "../hooks/useResource";
 
@@ -13,8 +14,6 @@ interface VersionRecord {
   createdBy: string;
   createdAt: string;
 }
-
-const ATTACHABLE_LABELS = RESOURCE_LIST.map((r) => r.label);
 
 /** Section 21-22: draft -> publish -> archive lifecycle, plus attaching
  * elements to a draft version's CONTAINS set before publishing. */
@@ -30,15 +29,15 @@ export function VersionsPage() {
     e.preventDefault();
     setFormError(null);
     if (!form.version) {
-      setFormError("Version (e.g. 1.0.0) is required");
+      setFormError("Informe uma versão, ex.: 1.0.0");
       return;
     }
     try {
-      await api.post("/versions", { ...form, createdBy: form.createdBy || "system" });
+      await api.post("/versions", { ...form, createdBy: form.createdBy || "sistema" });
       setForm({ version: "", description: "", createdBy: "" });
       await refresh();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to create version");
+      setFormError(err instanceof Error ? err.message : "Não foi possível criar a versão");
     }
   };
 
@@ -64,14 +63,20 @@ export function VersionsPage() {
   return (
     <div>
       <div className="page-header">
-        <h2>Versions</h2>
+        <h2>🏷️ Histórico de Versões</h2>
       </div>
+
+      <HelpPanel
+        title='O que é "Histórico de Versões"?'
+        text="Um marco no tempo da sua ontologia. Crie uma versão em rascunho, escolha o que ela contém, e publique quando estiver pronta. Versões publicadas nunca são apagadas."
+        example='Ex.: "1.0.0 — primeira versão com Cliente, Pedido e a conexão entre eles"'
+      />
 
       <div className="panel" style={{ padding: 18, marginBottom: 20 }}>
         <form onSubmit={create}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr", gap: 14 }}>
             <div className="field">
-              <label>Version</label>
+              <label>Versão</label>
               <input
                 placeholder="1.0.0"
                 value={form.version}
@@ -79,16 +84,16 @@ export function VersionsPage() {
               />
             </div>
             <div className="field">
-              <label>Description</label>
+              <label>Descrição</label>
               <input
                 value={form.description}
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               />
             </div>
             <div className="field">
-              <label>Created by</label>
+              <label>Criado por</label>
               <input
-                placeholder="system"
+                placeholder="sistema"
                 value={form.createdBy}
                 onChange={(e) => setForm((f) => ({ ...f, createdBy: e.target.value }))}
               />
@@ -97,7 +102,7 @@ export function VersionsPage() {
           {formError && <div className="banner banner-error">{formError}</div>}
           <div className="form-actions">
             <button type="submit" className="btn btn-primary">
-              Create draft version
+              Criar versão em rascunho
             </button>
           </div>
         </form>
@@ -109,18 +114,25 @@ export function VersionsPage() {
         <table>
           <thead>
             <tr>
-              <th>Version</th>
-              <th>Description</th>
+              <th>Versão</th>
+              <th>Descrição</th>
               <th>Status</th>
-              <th>Created by</th>
-              <th>Created</th>
+              <th>Criado por</th>
+              <th>Criado em</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={6}>Loading…</td>
+                <td colSpan={6}>Carregando…</td>
+              </tr>
+            )}
+            {!loading && items.length === 0 && (
+              <tr>
+                <td colSpan={6} className="muted">
+                  Nenhuma versão ainda.
+                </td>
               </tr>
             )}
             {items.map((v) => (
@@ -136,19 +148,19 @@ export function VersionsPage() {
                   {v.status === "DRAFT" && (
                     <>
                       <button className="btn" onClick={() => setAttachTarget(attachTarget === v.id ? null : v.id)}>
-                        Attach
+                        Adicionar itens
                       </button>
                       <button className="btn btn-primary" onClick={() => void publish(v.id)}>
-                        Publish
+                        Publicar
                       </button>
                       <button className="btn btn-danger" onClick={() => void remove(v.id)}>
-                        Delete
+                        Excluir
                       </button>
                     </>
                   )}
                   {v.status === "PUBLISHED" && (
                     <button className="btn" onClick={() => void archive(v.id)}>
-                      Archive
+                      Arquivar
                     </button>
                   )}
                 </td>
@@ -160,27 +172,27 @@ export function VersionsPage() {
 
       {attachTarget && (
         <div className="panel" style={{ padding: 18, marginTop: 16 }}>
-          <h3 style={{ marginTop: 0 }}>Attach element to version</h3>
+          <h3 style={{ marginTop: 0 }}>Adicionar item a esta versão</h3>
           <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
             <div className="field" style={{ marginBottom: 0 }}>
-              <label>Label</label>
+              <label>Tipo de bloco</label>
               <select value={attachLabel} onChange={(e) => setAttachLabel(e.target.value as OntologyLabel)}>
-                {ATTACHABLE_LABELS.map((l) => (
-                  <option key={l} value={l}>
-                    {l}
+                {RESOURCE_LIST.map((r) => (
+                  <option key={r.label} value={r.label}>
+                    {r.icon} {r.displayName}
                   </option>
                 ))}
               </select>
             </div>
             <div className="field" style={{ marginBottom: 0 }}>
-              <label>Element</label>
+              <label>Item</label>
               <ElementPicker label={attachLabel} value={attachId} onChange={setAttachId} />
             </div>
             <button className="btn btn-primary" onClick={() => void attach(attachTarget)}>
-              Attach
+              Adicionar
             </button>
             <button className="btn" onClick={() => setAttachTarget(null)}>
-              Close
+              Fechar
             </button>
           </div>
         </div>

@@ -19,7 +19,7 @@ export function RecordFormModal({
   initialValues,
   onSubmit,
   onCancel,
-  submitLabel = "Save"
+  submitLabel = "Salvar"
 }: RecordFormModalProps) {
   const [values, setValues] = useState<FormValues>(initialValues);
   const [submitting, setSubmitting] = useState(false);
@@ -31,7 +31,7 @@ export function RecordFormModal({
     e.preventDefault();
     for (const field of fields) {
       if (field.required && !values[field.key]) {
-        setError(`${field.label} is required`);
+        setError(`Preencha o campo "${field.label}"`);
         return;
       }
     }
@@ -40,7 +40,7 @@ export function RecordFormModal({
     try {
       await onSubmit(values);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
+      setError(err instanceof Error ? err.message : "Não foi possível salvar");
     } finally {
       setSubmitting(false);
     }
@@ -109,10 +109,10 @@ export function RecordFormModal({
           ))}
           <div className="form-actions">
             <button type="button" className="btn" onClick={onCancel} disabled={submitting}>
-              Cancel
+              Cancelar
             </button>
             <button type="submit" className="btn btn-primary" disabled={submitting}>
-              {submitting ? "Saving…" : submitLabel}
+              {submitting ? "Salvando…" : submitLabel}
             </button>
           </div>
         </form>

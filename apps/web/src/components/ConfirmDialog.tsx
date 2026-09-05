@@ -12,7 +12,7 @@ interface ConfirmDialogProps {
 export function ConfirmDialog({
   title,
   message,
-  confirmLabel = "Confirm",
+  confirmLabel = "Confirmar",
   danger = false,
   onConfirm,
   onCancel
@@ -24,7 +24,7 @@ export function ConfirmDialog({
         <p>{message}</p>
         <div className="form-actions">
           <button className="btn" onClick={onCancel}>
-            Cancel
+            Cancelar
           </button>
           <button className={danger ? "btn btn-danger" : "btn btn-primary"} onClick={onConfirm}>
             {confirmLabel}

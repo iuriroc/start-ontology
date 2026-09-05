@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { RESOURCE_LIST } from "@ontology-builder/shared";
 import { ApiError, api } from "../api/client";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { HelpPanel } from "../components/HelpPanel";
 import { RecordFormModal, type FormValues } from "../components/RecordFormModal";
 import { StatusBadge } from "../components/StatusBadge";
 import { RESOURCE_FIELDS } from "../features/resourceFields";
@@ -69,7 +70,7 @@ export function ResourcePage() {
         const match = err.message.match(/has (\d+) relationship/);
         setPendingDelete({ id, hard, relCount: match ? Number(match[1]) : 0 });
       } else {
-        setActionError(err instanceof Error ? err.message : "Action failed");
+        setActionError(err instanceof Error ? err.message : "Não foi possível concluir a ação");
       }
     }
   };
@@ -77,11 +78,15 @@ export function ResourcePage() {
   return (
     <div>
       <div className="page-header">
-        <h2>{meta.displayName}</h2>
+        <h2>
+          <span className="nav-icon">{meta.icon}</span> {meta.displayName}
+        </h2>
         <button className="btn btn-primary" onClick={() => setCreating(true)}>
-          + New {meta.displayName.replace(/s$/, "")}
+          + Adicionar em {meta.displayName}
         </button>
       </div>
+
+      <HelpPanel title={`O que é "${meta.displayName}"?`} text={meta.helpText} example={meta.example} />
 
       {error && <div className="banner banner-error">{error}</div>}
       {actionError && <div className="banner banner-error">{actionError}</div>}
@@ -90,23 +95,23 @@ export function ResourcePage() {
         <table>
           <thead>
             <tr>
-              <th>Name</th>
+              <th>Nome</th>
               <th>Status</th>
-              <th>Version</th>
-              <th>Updated</th>
+              <th>Versão</th>
+              <th>Atualizado</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={5}>Loading…</td>
+                <td colSpan={5}>Carregando…</td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
                 <td colSpan={5} className="muted">
-                  No {meta.displayName.toLowerCase()} yet.
+                  Nada em {meta.displayName} ainda. Clique em "Adicionar" para criar o primeiro.
                 </td>
               </tr>
             )}
@@ -120,15 +125,15 @@ export function ResourcePage() {
                 <td>{new Date(item.updatedAt).toLocaleString()}</td>
                 <td style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                   <button className="btn" onClick={() => setEditing(item)}>
-                    Edit
+                    Editar
                   </button>
                   {item.status !== "ARCHIVED" && (
                     <button className="btn" onClick={() => void attemptDelete(item.id, false, false)}>
-                      Archive
+                      Arquivar
                     </button>
                   )}
                   <button className="btn btn-danger" onClick={() => void attemptDelete(item.id, true, false)}>
-                    Delete
+                    Excluir
                   </button>
                 </td>
               </tr>
@@ -139,32 +144,33 @@ export function ResourcePage() {
 
       {creating && (
         <RecordFormModal
-          title={`New ${meta.displayName.replace(/s$/, "")}`}
+          title={`Novo em ${meta.displayName}`}
           fields={fields}
           initialValues={emptyValues}
           onSubmit={handleCreate}
           onCancel={() => setCreating(false)}
+          submitLabel="Criar"
         />
       )}
 
       {editing && (
         <RecordFormModal
-          title={`Edit ${editing.name}`}
+          title={`Editar ${editing.name}`}
           fields={fields}
           initialValues={editing}
           onSubmit={handleUpdate}
           onCancel={() => setEditing(null)}
-          submitLabel="Save changes"
+          submitLabel="Salvar alterações"
         />
       )}
 
       {pendingDelete && (
         <ConfirmDialog
-          title="This element has relationships"
-          message={`This element has ${pendingDelete.relCount} relationship(s). Do you really want to ${
-            pendingDelete.hard ? "permanently delete" : "archive"
-          } it?`}
-          confirmLabel={pendingDelete.hard ? "Delete anyway" : "Archive anyway"}
+          title="Este item está conectado a outros"
+          message={`Este item tem ${pendingDelete.relCount} conexão(ões). Quer mesmo ${
+            pendingDelete.hard ? "excluir definitivamente" : "arquivar"
+          } mesmo assim?`}
+          confirmLabel={pendingDelete.hard ? "Excluir mesmo assim" : "Arquivar mesmo assim"}
           danger={pendingDelete.hard}
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => void attemptDelete(pendingDelete.id, pendingDelete.hard, true)}
