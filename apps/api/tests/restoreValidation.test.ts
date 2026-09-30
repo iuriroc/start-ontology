@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 import AdmZip from "adm-zip";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { closeDriver } from "../src/neo4j/driver.js";
+import { closePool } from "../src/postgres/pool.js";
 
 /**
- * The restore validation pipeline (spec section 39) never touches Neo4j
+ * The restore validation pipeline (spec section 39) never touches Postgres
  * until a plan is actually committed via /api/restore, so it can be fully
  * exercised here without a live database — including the checksum-tamper
  * case, which is the most security-relevant path in the whole app.
@@ -64,7 +64,7 @@ describe("POST /api/import validation pipeline", () => {
 
   afterAll(async () => {
     await app.close();
-    await closeDriver();
+    await closePool();
   });
 
   it("rejects a request with no file", async () => {

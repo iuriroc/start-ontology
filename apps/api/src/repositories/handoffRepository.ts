@@ -1,12 +1,13 @@
+import { randomUUID } from "node:crypto";
 import type { HandoffCreateInput } from "@ontology-builder/shared";
-import { getSession } from "../neo4j/driver.js";
+import { runQuery, withTransaction } from "../postgres/transaction.js";
 import { createNodeRepository, type NodeProps } from "./nodeRepository.js";
 
 const baseRepo = createNodeRepository("Handoff");
 
 /**
- * A Handoff node also gets FROM_AGENT/TO_AGENT edges to the referenced
- * Agent nodes so the graph view can render "Agent A -[:HANDOFF_TO]->
+ * A Handoff row also gets FROM_AGENT/TO_AGENT edges to the referenced
+ * Agent nodes so the graph view can render "Agent A -[HANDOFF_TO]->
  * Agent B" transitively via the Handoff node (spec section 17).
  */
 export const handoffRepository = {
@@ -19,37 +20,37 @@ export const handoffRepository = {
   hardDelete: baseRepo.hardDelete,
 
   async create(data: HandoffCreateInput & { name: string; description?: string; status: string }): Promise<NodeProps> {
-    const session = getSession();
-    try {
+    return withTransaction(async (client) => {
       for (const [role, agentId] of [
         ["from", data.fromAgentId],
         ["to", data.toAgentId]
       ] as const) {
-        const exists = await session.run(`MATCH (n:Agent {id: $id}) RETURN n.id AS id`, {
-          id: agentId
-        });
-        if (exists.records.length === 0) {
+        const exists = await runQuery(client, `SELECT id FROM ontology_nodes WHERE label = 'Agent' AND id = $1`, [
+          agentId
+        ]);
+        if (exists.rows.length === 0) {
           throw new Error(`${role} agent ${agentId} does not exist`);
         }
       }
-    } finally {
-      await session.close();
-    }
 
-    const handoff = await baseRepo.create(data);
+      const handoff = await baseRepo.create(data, client);
 
-    const edgeSession = getSession();
-    try {
-      await edgeSession.run(
-        `MATCH (h:Handoff {id: $handoffId}), (from:Agent {id: $fromId}), (to:Agent {id: $toId})
-         MERGE (h)-[:FROM_AGENT]->(from)
-         MERGE (h)-[:TO_AGENT]->(to)`,
-        { handoffId: handoff.id, fromId: data.fromAgentId, toId: data.toAgentId }
+      await runQuery(
+        client,
+        `INSERT INTO ontology_edges (id, source_id, target_id, type)
+         VALUES ($1, $2, $3, 'FROM_AGENT')
+         ON CONFLICT (source_id, target_id, type) WHERE relationship_definition_id IS NULL DO NOTHING`,
+        [randomUUID(), handoff.id, data.fromAgentId]
       );
-    } finally {
-      await edgeSession.close();
-    }
+      await runQuery(
+        client,
+        `INSERT INTO ontology_edges (id, source_id, target_id, type)
+         VALUES ($1, $2, $3, 'TO_AGENT')
+         ON CONFLICT (source_id, target_id, type) WHERE relationship_definition_id IS NULL DO NOTHING`,
+        [randomUUID(), handoff.id, data.toAgentId]
+      );
 
-    return handoff;
+      return handoff;
+    });
   }
 };

@@ -1,18 +1,19 @@
+import { randomUUID } from "node:crypto";
 import type { RelationshipCreateInput, RelationshipUpdateInput } from "@ontology-builder/shared";
-import { getSession } from "../neo4j/driver.js";
+import { runQuery, withTransaction } from "../postgres/transaction.js";
 import { createNodeRepository, type NodeProps } from "./nodeRepository.js";
 
 const definitionRepo = createNodeRepository("RelationshipDefinition");
 
 /**
- * A Relationship is stored two ways: a :RelationshipDefinition node (so it
- * gets the same CRUD/list/versioning treatment as every other ontology
- * element) and, mirroring it, a real typed edge between the referenced
- * source/target nodes (so the graph view and Cypher exports show an actual
- * `(Customer)-[:PERFORMED]->(Transaction)` relationship, per spec section 10).
- * sourceLabel/targetLabel/type are always validated against the fixed
- * allowlist/regex in @ontology-builder/shared before reaching this module,
- * so interpolating them into Cypher here is safe.
+ * A Relationship is stored two ways: a RelationshipDefinition row in
+ * ontology_nodes (so it gets the same CRUD/list/versioning treatment as
+ * every other ontology element) and, mirroring it, a real edge in
+ * ontology_edges between the referenced source/target nodes (so the graph
+ * view and SQL export show an actual Customer -[PERFORMED]-> Transaction
+ * edge, per spec section 10). sourceLabel/targetLabel/type are always
+ * validated against the fixed allowlist/regex in @ontology-builder/shared
+ * before reaching this module.
  */
 export const relationshipRepository = {
   label: definitionRepo.label,
@@ -23,71 +24,59 @@ export const relationshipRepository = {
   relationshipCount: definitionRepo.relationshipCount,
 
   async create(data: RelationshipCreateInput & { name: string; description?: string; status: string }) {
-    const session = getSession();
-    try {
-      const sourceExists = await session.run(
-        `MATCH (n:${data.sourceLabel} {id: $id}) RETURN n.id AS id`,
-        { id: data.sourceId }
+    return withTransaction(async (client) => {
+      const sourceExists = await runQuery(
+        client,
+        `SELECT id FROM ontology_nodes WHERE label = $1 AND id = $2`,
+        [data.sourceLabel, data.sourceId]
       );
-      if (sourceExists.records.length === 0) {
+      if (sourceExists.rows.length === 0) {
         throw new Error(`source ${data.sourceLabel} ${data.sourceId} does not exist`);
       }
-      const targetExists = await session.run(
-        `MATCH (n:${data.targetLabel} {id: $id}) RETURN n.id AS id`,
-        { id: data.targetId }
+      const targetExists = await runQuery(
+        client,
+        `SELECT id FROM ontology_nodes WHERE label = $1 AND id = $2`,
+        [data.targetLabel, data.targetId]
       );
-      if (targetExists.records.length === 0) {
+      if (targetExists.rows.length === 0) {
         throw new Error(`target ${data.targetLabel} ${data.targetId} does not exist`);
       }
-    } finally {
-      await session.close();
-    }
 
-    const definition = await definitionRepo.create(data);
+      const definition = await definitionRepo.create(data, client);
 
-    const edgeSession = getSession();
-    try {
-      await edgeSession.run(
-        `MATCH (a:${data.sourceLabel} {id: $sourceId}), (b:${data.targetLabel} {id: $targetId})
-         MERGE (a)-[r:${data.type} {relationshipDefinitionId: $defId}]->(b)
-         SET r.cardinality = $cardinality`,
-        {
-          sourceId: data.sourceId,
-          targetId: data.targetId,
-          defId: definition.id,
-          cardinality: data.cardinality
-        }
+      await runQuery(
+        client,
+        `INSERT INTO ontology_edges (id, source_id, target_id, type, relationship_definition_id, cardinality)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (relationship_definition_id) WHERE relationship_definition_id IS NOT NULL
+         DO UPDATE SET cardinality = EXCLUDED.cardinality`,
+        [randomUUID(), data.sourceId, data.targetId, data.type, definition.id, data.cardinality]
       );
-    } finally {
-      await edgeSession.close();
-    }
 
-    return definition;
+      return definition;
+    });
   },
 
   async update(id: string, data: RelationshipUpdateInput): Promise<NodeProps | null> {
-    const updated = await definitionRepo.update(id, data);
-    if (updated && data.cardinality) {
-      const session = getSession();
-      try {
-        await session.run(
-          `MATCH ()-[r {relationshipDefinitionId: $id}]->() SET r.cardinality = $cardinality`,
-          { id, cardinality: data.cardinality }
-        );
-      } finally {
-        await session.close();
-      }
+    if (!data.cardinality) {
+      return definitionRepo.update(id, data);
     }
-    return updated;
+    return withTransaction(async (client) => {
+      const updated = await definitionRepo.update(id, data, client);
+      if (updated) {
+        await runQuery(
+          client,
+          `UPDATE ontology_edges SET cardinality = $1 WHERE relationship_definition_id = $2`,
+          [data.cardinality, id]
+        );
+      }
+      return updated;
+    });
   },
 
   async hardDelete(id: string): Promise<void> {
-    const session = getSession();
-    try {
-      await session.run(`MATCH ()-[r {relationshipDefinitionId: $id}]->() DELETE r`, { id });
-    } finally {
-      await session.close();
-    }
+    // ontology_edges.relationship_definition_id has ON DELETE CASCADE, so
+    // deleting the definition node also removes its mirror edge.
     await definitionRepo.hardDelete(id);
   }
 };

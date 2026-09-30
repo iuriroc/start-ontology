@@ -28,7 +28,6 @@ import type { z } from "zod";
 export interface SimpleResourceConfig {
   path: string;
   label: OntologyLabel;
-  jsonFields?: string[];
   createSchema: z.ZodTypeAny;
   updateSchema: z.ZodTypeAny;
 }
@@ -40,7 +39,6 @@ export const SIMPLE_RESOURCES: SimpleResourceConfig[] = [
   {
     path: "entities",
     label: "Entity",
-    jsonFields: ["properties"],
     createSchema: entityCreateSchema,
     updateSchema: entityUpdateSchema
   },

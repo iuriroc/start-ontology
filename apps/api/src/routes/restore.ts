@@ -37,7 +37,7 @@ function summarize(snapshot: import("../validators/backupSchema.js").OntologySna
 /**
  * Import (validate) and Restore (commit) are deliberately two calls: the
  * spec's validation pipeline (section 39) must run and be shown to the user
- * — including the merge-vs-replace choice — before anything touches Neo4j.
+ * — including the merge-vs-replace choice — before anything touches Postgres.
  */
 export function registerRestoreRoutes(app: FastifyInstance): void {
   app.post("/import", async (request) => {

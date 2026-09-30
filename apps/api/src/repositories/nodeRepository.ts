@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { OntologyLabel } from "@ontology-builder/shared";
-import { getSession } from "../neo4j/driver.js";
+import type { QueryResultRow } from "pg";
+import { runQuery, type Queryable } from "../postgres/transaction.js";
 
 export interface ListOptions {
   limit: number;
@@ -11,160 +12,176 @@ export interface ListOptions {
 
 export type NodeProps = Record<string, unknown>;
 
-/**
- * Neo4j node properties must be primitives or arrays of primitives — they
- * cannot hold nested objects (e.g. Entity.properties, an array of {name,
- * type, required, description}). jsonFields lists which top-level fields
- * on this label need JSON (de)serialization on the way in/out.
- */
-export function serialize(data: NodeProps, jsonFields: string[]): NodeProps {
-  const out: NodeProps = {};
-  for (const [key, value] of Object.entries(data)) {
-    out[key] = jsonFields.includes(key) ? JSON.stringify(value ?? []) : value;
-  }
-  return out;
-}
+export const KNOWN_COLUMNS = ["name", "description", "status", "domain", "version"] as const;
+export type KnownColumn = (typeof KNOWN_COLUMNS)[number];
 
-export function deserialize(props: NodeProps, jsonFields: string[]): NodeProps {
-  const out: NodeProps = { ...props };
-  for (const field of jsonFields) {
-    if (typeof out[field] === "string") {
-      try {
-        out[field] = JSON.parse(out[field] as string);
-      } catch {
-        out[field] = [];
-      }
+/** Splits a flat props object into the columns ontology_nodes has natively
+ * and everything else, which is stored in the `data` JSONB column. */
+export function splitColumns(data: NodeProps): { known: Partial<Record<KnownColumn, unknown>>; rest: NodeProps } {
+  const known: Partial<Record<KnownColumn, unknown>> = {};
+  const rest: NodeProps = {};
+  for (const [key, value] of Object.entries(data)) {
+    if ((KNOWN_COLUMNS as readonly string[]).includes(key)) {
+      known[key as KnownColumn] = value;
+    } else {
+      rest[key] = value;
     }
   }
-  return out;
+  return { known, rest };
+}
+
+interface NodeRow extends QueryResultRow {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  domain: string | null;
+  version: string;
+  data: NodeProps;
+  created_at: Date;
+  updated_at: Date;
+}
+
+function fromRow(row: NodeRow): NodeProps {
+  return {
+    id: row.id,
+    name: row.name,
+    ...(row.description != null ? { description: row.description } : {}),
+    status: row.status,
+    ...(row.domain != null ? { domain: row.domain } : {}),
+    version: row.version,
+    ...row.data,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString()
+  };
 }
 
 /**
- * label is always a value from the fixed OntologyLabel allowlist (never
- * user input), so interpolating it into Cypher is safe — labels cannot be
- * parameterized by the driver.
+ * label is always a value from the fixed OntologyLabel allowlist and is
+ * bound as an ordinary query parameter here (Postgres columns, unlike Neo4j
+ * labels, can always be parameterized) — no string interpolation involved.
  */
-export function createNodeRepository(label: OntologyLabel, jsonFields: string[] = []) {
+export function createNodeRepository(label: OntologyLabel) {
   return {
     label,
 
-    async list(opts: ListOptions): Promise<NodeProps[]> {
-      const session = getSession();
-      try {
-        const where: string[] = [];
-        const params: NodeProps = { limit: opts.limit, offset: opts.offset };
-        if (opts.status) {
-          where.push("n.status = $status");
-          params.status = opts.status;
-        }
-        if (opts.domain) {
-          where.push("n.domain = $domain");
-          params.domain = opts.domain;
-        }
-        const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
-        const result = await session.run(
-          `MATCH (n:${label}) ${whereClause}
-           RETURN n ORDER BY n.createdAt DESC
-           SKIP $offset LIMIT $limit`,
-          params
-        );
-        return result.records.map((r) => deserialize(r.get("n").properties, jsonFields));
-      } finally {
-        await session.close();
+    async list(opts: ListOptions, client?: Queryable): Promise<NodeProps[]> {
+      const conditions = ["label = $1"];
+      const params: unknown[] = [label];
+      if (opts.status) {
+        params.push(opts.status);
+        conditions.push(`status = $${params.length}`);
       }
+      if (opts.domain) {
+        params.push(opts.domain);
+        conditions.push(`domain = $${params.length}`);
+      }
+      params.push(opts.limit, opts.offset);
+      const result = await runQuery<NodeRow>(
+        client,
+        `SELECT * FROM ontology_nodes WHERE ${conditions.join(" AND ")}
+         ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params
+      );
+      return result.rows.map(fromRow);
     },
 
-    async count(status?: string): Promise<number> {
-      const session = getSession();
-      try {
-        const result = await session.run(
-          `MATCH (n:${label}) ${status ? "WHERE n.status = $status" : ""} RETURN count(n) AS c`,
-          status ? { status } : {}
-        );
-        return Number(result.records[0]?.get("c") ?? 0);
-      } finally {
-        await session.close();
+    async count(status?: string, client?: Queryable): Promise<number> {
+      const conditions = ["label = $1"];
+      const params: unknown[] = [label];
+      if (status) {
+        params.push(status);
+        conditions.push(`status = $${params.length}`);
       }
+      const result = await runQuery<{ c: string }>(
+        client,
+        `SELECT count(*) AS c FROM ontology_nodes WHERE ${conditions.join(" AND ")}`,
+        params
+      );
+      return Number(result.rows[0]?.c ?? 0);
     },
 
-    async findById(id: string): Promise<NodeProps | null> {
-      const session = getSession();
-      try {
-        const result = await session.run(`MATCH (n:${label} {id: $id}) RETURN n`, { id });
-        const props = result.records[0]?.get("n").properties;
-        return props ? deserialize(props, jsonFields) : null;
-      } finally {
-        await session.close();
-      }
+    async findById(id: string, client?: Queryable): Promise<NodeProps | null> {
+      const result = await runQuery<NodeRow>(
+        client,
+        `SELECT * FROM ontology_nodes WHERE label = $1 AND id = $2`,
+        [label, id]
+      );
+      return result.rows[0] ? fromRow(result.rows[0]) : null;
     },
 
-    async findByName(name: string): Promise<NodeProps | null> {
-      const session = getSession();
-      try {
-        const result = await session.run(`MATCH (n:${label} {name: $name}) RETURN n LIMIT 1`, {
-          name
-        });
-        const props = result.records[0]?.get("n").properties;
-        return props ? deserialize(props, jsonFields) : null;
-      } finally {
-        await session.close();
-      }
+    async findByName(name: string, client?: Queryable): Promise<NodeProps | null> {
+      const result = await runQuery<NodeRow>(
+        client,
+        `SELECT * FROM ontology_nodes WHERE label = $1 AND name = $2 LIMIT 1`,
+        [label, name]
+      );
+      return result.rows[0] ? fromRow(result.rows[0]) : null;
     },
 
-    async create(data: NodeProps): Promise<NodeProps> {
-      const session = getSession();
-      const now = new Date().toISOString();
-      const props = {
-        id: randomUUID(),
-        version: "0.1.0",
-        ...data,
-        createdAt: now,
-        updatedAt: now
-      };
-      try {
-        const result = await session.run(`CREATE (n:${label}) SET n = $props RETURN n`, {
-          props: serialize(props, jsonFields)
-        });
-        return deserialize(result.records[0]!.get("n").properties, jsonFields);
-      } finally {
-        await session.close();
-      }
+    async create(data: NodeProps, client?: Queryable): Promise<NodeProps> {
+      const id = randomUUID();
+      const now = new Date();
+      const { known, rest } = splitColumns(data);
+      const result = await runQuery<NodeRow>(
+        client,
+        `INSERT INTO ontology_nodes (id, label, name, description, status, domain, version, data, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+         RETURNING *`,
+        [
+          id,
+          label,
+          known.name ?? null,
+          known.description ?? null,
+          known.status ?? "DRAFT",
+          known.domain ?? null,
+          known.version ?? "0.1.0",
+          JSON.stringify(rest),
+          now
+        ]
+      );
+      return fromRow(result.rows[0]!);
     },
 
-    async update(id: string, data: NodeProps): Promise<NodeProps | null> {
-      const session = getSession();
-      try {
-        const result = await session.run(
-          `MATCH (n:${label} {id: $id}) SET n += $props, n.updatedAt = $now RETURN n`,
-          { id, props: serialize(data, jsonFields), now: new Date().toISOString() }
-        );
-        const props = result.records[0]?.get("n").properties;
-        return props ? deserialize(props, jsonFields) : null;
-      } finally {
-        await session.close();
+    async update(id: string, data: NodeProps, client?: Queryable): Promise<NodeProps | null> {
+      const { known, rest } = splitColumns(data);
+      const setClauses: string[] = [];
+      const params: unknown[] = [];
+      for (const [column, value] of Object.entries(known)) {
+        params.push(value);
+        setClauses.push(`${column} = $${params.length}`);
       }
+      params.push(JSON.stringify(rest));
+      setClauses.push(`data = data || $${params.length}::jsonb`);
+      params.push(new Date());
+      setClauses.push(`updated_at = $${params.length}`);
+      params.push(label, id);
+
+      const result = await runQuery<NodeRow>(
+        client,
+        `UPDATE ontology_nodes SET ${setClauses.join(", ")}
+         WHERE label = $${params.length - 1} AND id = $${params.length}
+         RETURNING *`,
+        params
+      );
+      return result.rows[0] ? fromRow(result.rows[0]) : null;
     },
 
-    async hardDelete(id: string): Promise<void> {
-      const session = getSession();
-      try {
-        await session.run(`MATCH (n:${label} {id: $id}) DETACH DELETE n`, { id });
-      } finally {
-        await session.close();
-      }
+    async hardDelete(id: string, client?: Queryable): Promise<void> {
+      await runQuery(client, `DELETE FROM ontology_nodes WHERE label = $1 AND id = $2`, [label, id]);
     },
 
-    async relationshipCount(id: string): Promise<number> {
-      const session = getSession();
-      try {
-        const result = await session.run(
-          `MATCH (n:${label} {id: $id})-[r]-() RETURN count(r) AS c`,
-          { id }
-        );
-        return Number(result.records[0]?.get("c") ?? 0);
-      } finally {
-        await session.close();
-      }
+    /** Any real graph edge touching this node, plus version membership —
+     * both currently block a hard delete with a 409. */
+    async relationshipCount(id: string, client?: Queryable): Promise<number> {
+      const result = await runQuery<{ c: string }>(
+        client,
+        `SELECT
+           (SELECT count(*) FROM ontology_edges WHERE source_id = $1 OR target_id = $1) +
+           (SELECT count(*) FROM version_contents WHERE node_id = $1) AS c`,
+        [id]
+      );
+      return Number(result.rows[0]?.c ?? 0);
     }
   };
 }

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyBaseLogger } from "fastify";
-import { getSession } from "../neo4j/driver.js";
+import { runQuery } from "../postgres/transaction.js";
 
 export type AuditAction =
   | "CREATE"
@@ -20,22 +20,18 @@ export interface AuditEntry {
   result: "SUCCESS" | "FAILURE";
 }
 
-/** Persists an audit trail entry as a Neo4j node, isolated from ontology
- * labels (never returned by ontology/graph queries). Never throws — an
+/** Persists an audit trail entry in its own table, isolated from ontology
+ * nodes (never returned by ontology/graph queries). Never throws — an
  * audit failure must not fail the underlying business operation. */
 export async function recordAudit(entry: AuditEntry, logger?: FastifyBaseLogger): Promise<void> {
-  const session = getSession();
   try {
-    await session.run(
-      `CREATE (a:AuditLog {
-        id: $id, action: $action, resourceType: $resourceType,
-        resourceId: $resourceId, result: $result, timestamp: datetime()
-      })`,
-      { id: randomUUID(), ...entry }
+    await runQuery(
+      undefined,
+      `INSERT INTO audit_log (id, action, resource_type, resource_id, result, timestamp)
+       VALUES ($1, $2, $3, $4, $5, now())`,
+      [randomUUID(), entry.action, entry.resourceType, entry.resourceId, entry.result]
     );
   } catch (err) {
     logger?.error({ err, entry }, "failed to persist audit log entry");
-  } finally {
-    await session.close();
   }
 }

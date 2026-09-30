@@ -16,7 +16,7 @@ export function registerAllRoutes(app: FastifyInstance): void {
   registerHealthRoutes(app);
 
   for (const resource of SIMPLE_RESOURCES) {
-    const repo = createNodeRepository(resource.label, resource.jsonFields ?? []);
+    const repo = createNodeRepository(resource.label);
     const service = createOntologyService(repo, app.log);
     registerCrudRoutes(app, {
       path: resource.path,

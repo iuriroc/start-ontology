@@ -16,7 +16,7 @@ interface ImportSummary {
   counts: Record<string, number>;
 }
 
-/** Sections 35-41: backup (zip with ontology.json/.cypher + manifest),
+/** Sections 35-41: backup (zip with ontology.json/.sql + manifest),
  * restore with a merge/replace choice, and server-to-server transfer —
  * the same zip downloaded here is what gets imported on another instance. */
 export function BackupRestorePage() {

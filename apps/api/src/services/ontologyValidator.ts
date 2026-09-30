@@ -1,5 +1,5 @@
 import { ONTOLOGY_LABELS } from "@ontology-builder/shared";
-import { getSession } from "../neo4j/driver.js";
+import { runQuery } from "../postgres/transaction.js";
 
 export type IssueSeverity = "WARNING" | "ERROR";
 
@@ -19,146 +19,171 @@ export interface ValidationResult {
  * Structural checks against the live graph (spec section 43). Pure read —
  * never mutates. Anything creation-time validation already prevents (e.g. a
  * Rule with no condition) is re-checked here too, as defense in depth for
- * data that arrived via restore rather than the API.
+ * data that arrived via restore rather than the API. BROKEN_RELATIONSHIP_*
+ * can no longer actually fire in practice — ontology_edges.source_id/
+ * target_id are foreign keys into ontology_nodes, so a dangling reference
+ * can't be persisted — but the checks stay as a documented invariant.
  */
 export async function validateOntology(): Promise<ValidationResult> {
-  const session = getSession();
   const issues: ValidationIssue[] = [];
 
-  try {
-    for (const label of ONTOLOGY_LABELS) {
-      if (label === "OntologyVersion") continue;
-      const result = await session.run(
-        `MATCH (n:${label}) WITH n.name AS name, collect(n.id) AS ids
-         WHERE size(ids) > 1
-         RETURN name, ids`
-      );
-      for (const record of result.records) {
-        issues.push({
-          severity: "WARNING",
-          code: "DUPLICATE_NAME",
-          message: `${label} name "${record.get("name")}" is used by ${record.get("ids").length} elements`,
-          elementIds: record.get("ids")
-        });
-      }
-    }
-
-    const orphanEntities = await session.run(
-      `MATCH (e:Entity) WHERE NOT (e)--() RETURN e.id AS id, e.name AS name`
+  for (const label of ONTOLOGY_LABELS) {
+    if (label === "OntologyVersion") continue;
+    const result = await runQuery<{ name: string; ids: string[] }>(
+      undefined,
+      `SELECT name, array_agg(id) AS ids FROM ontology_nodes
+       WHERE label = $1 GROUP BY name HAVING count(*) > 1`,
+      [label]
     );
-    for (const record of orphanEntities.records) {
+    for (const row of result.rows) {
       issues.push({
         severity: "WARNING",
-        code: "ENTITY_WITHOUT_RELATIONSHIP",
-        message: `Entity "${record.get("name")}" has no relationships`,
-        elementIds: [record.get("id")]
+        code: "DUPLICATE_NAME",
+        message: `${label} name "${row.name}" is used by ${row.ids.length} elements`,
+        elementIds: row.ids
       });
     }
-
-    const brokenSource = await session.run(
-      `MATCH (rd:RelationshipDefinition)
-       WHERE NOT EXISTS { MATCH (s) WHERE s.id = rd.sourceId AND rd.sourceLabel IN labels(s) }
-       RETURN rd.id AS id, rd.name AS name`
-    );
-    for (const record of brokenSource.records) {
-      issues.push({
-        severity: "ERROR",
-        code: "BROKEN_RELATIONSHIP_SOURCE",
-        message: `Relationship "${record.get("name")}" points to a source element that no longer exists`,
-        elementIds: [record.get("id")]
-      });
-    }
-
-    const brokenTarget = await session.run(
-      `MATCH (rd:RelationshipDefinition)
-       WHERE NOT EXISTS { MATCH (t) WHERE t.id = rd.targetId AND rd.targetLabel IN labels(t) }
-       RETURN rd.id AS id, rd.name AS name`
-    );
-    for (const record of brokenTarget.records) {
-      issues.push({
-        severity: "ERROR",
-        code: "BROKEN_RELATIONSHIP_TARGET",
-        message: `Relationship "${record.get("name")}" points to a target element that no longer exists`,
-        elementIds: [record.get("id")]
-      });
-    }
-
-    const duplicateRelationships = await session.run(
-      `MATCH (rd:RelationshipDefinition)
-       WITH rd.sourceId AS s, rd.targetId AS t, rd.type AS ty, collect(rd.id) AS ids
-       WHERE size(ids) > 1
-       RETURN s, t, ty, ids`
-    );
-    for (const record of duplicateRelationships.records) {
-      issues.push({
-        severity: "WARNING",
-        code: "DUPLICATE_RELATIONSHIP",
-        message: `${record.get("ids").length} relationships of type ${record.get("ty")} connect the same elements`,
-        elementIds: record.get("ids")
-      });
-    }
-
-    const rulesMissingFields = await session.run(
-      `MATCH (r:Rule)
-       WHERE r.condition IS NULL OR r.condition = '' OR r.action IS NULL OR r.action = ''
-       RETURN r.id AS id, r.name AS name`
-    );
-    for (const record of rulesMissingFields.records) {
-      issues.push({
-        severity: "ERROR",
-        code: "RULE_MISSING_CONDITION_OR_ACTION",
-        message: `Rule "${record.get("name")}" is missing a condition or an action`,
-        elementIds: [record.get("id")]
-      });
-    }
-
-    const agentsWithoutCapability = await session.run(
-      `MATCH (a:Agent) WHERE NOT (a)-[:HAS_CAPABILITY]->(:Capability)
-       RETURN a.id AS id, a.name AS name`
-    );
-    for (const record of agentsWithoutCapability.records) {
-      issues.push({
-        severity: "WARNING",
-        code: "AGENT_WITHOUT_CAPABILITY",
-        message: `Agent "${record.get("name")}" has no Capability`,
-        elementIds: [record.get("id")]
-      });
-    }
-
-    const agentsWithoutPolicy = await session.run(
-      `MATCH (a:Agent) WHERE NOT (a)-[:GOVERNED_BY]->(:Policy)
-       RETURN a.id AS id, a.name AS name`
-    );
-    for (const record of agentsWithoutPolicy.records) {
-      issues.push({
-        severity: "WARNING",
-        code: "AGENT_WITHOUT_POLICY",
-        message: `Agent "${record.get("name")}" has no Policy`,
-        elementIds: [record.get("id")]
-      });
-    }
-
-    const statesWithoutTransition = await session.run(
-      `MATCH (s:State) WHERE s.final = false AND NOT (s)-[:TRANSITIONS_TO]-()
-       RETURN s.id AS id, s.name AS name`
-    );
-    for (const record of statesWithoutTransition.records) {
-      issues.push({
-        severity: "WARNING",
-        code: "STATE_WITHOUT_TRANSITION",
-        message: `State "${record.get("name")}" has no transition`,
-        elementIds: [record.get("id")]
-      });
-    }
-
-    const status: ValidationResult["status"] = issues.some((i) => i.severity === "ERROR")
-      ? "ERROR"
-      : issues.length > 0
-        ? "WARNING"
-        : "VALID";
-
-    return { status, issues };
-  } finally {
-    await session.close();
   }
+
+  // Confirmed behaviour: only real domain edges count — an Entity that only
+  // belongs to an OntologyVersion (via version_contents) still counts as
+  // "without relationship" here.
+  const orphanEntities = await runQuery<{ id: string; name: string }>(
+    undefined,
+    `SELECT n.id, n.name FROM ontology_nodes n
+     WHERE n.label = 'Entity'
+     AND NOT EXISTS (SELECT 1 FROM ontology_edges e WHERE e.source_id = n.id OR e.target_id = n.id)`
+  );
+  for (const row of orphanEntities.rows) {
+    issues.push({
+      severity: "WARNING",
+      code: "ENTITY_WITHOUT_RELATIONSHIP",
+      message: `Entity "${row.name}" has no relationships`,
+      elementIds: [row.id]
+    });
+  }
+
+  const brokenSource = await runQuery<{ id: string; name: string }>(
+    undefined,
+    `SELECT rd.id, rd.name FROM ontology_nodes rd
+     JOIN ontology_edges e ON e.relationship_definition_id = rd.id
+     LEFT JOIN ontology_nodes src ON src.id = e.source_id AND src.label = rd.data->>'sourceLabel'
+     WHERE rd.label = 'RelationshipDefinition' AND src.id IS NULL`
+  );
+  for (const row of brokenSource.rows) {
+    issues.push({
+      severity: "ERROR",
+      code: "BROKEN_RELATIONSHIP_SOURCE",
+      message: `Relationship "${row.name}" points to a source element that no longer exists`,
+      elementIds: [row.id]
+    });
+  }
+
+  const brokenTarget = await runQuery<{ id: string; name: string }>(
+    undefined,
+    `SELECT rd.id, rd.name FROM ontology_nodes rd
+     JOIN ontology_edges e ON e.relationship_definition_id = rd.id
+     LEFT JOIN ontology_nodes tgt ON tgt.id = e.target_id AND tgt.label = rd.data->>'targetLabel'
+     WHERE rd.label = 'RelationshipDefinition' AND tgt.id IS NULL`
+  );
+  for (const row of brokenTarget.rows) {
+    issues.push({
+      severity: "ERROR",
+      code: "BROKEN_RELATIONSHIP_TARGET",
+      message: `Relationship "${row.name}" points to a target element that no longer exists`,
+      elementIds: [row.id]
+    });
+  }
+
+  const duplicateRelationships = await runQuery<{ type: string; ids: string[] }>(
+    undefined,
+    `SELECT type, array_agg(relationship_definition_id) AS ids FROM ontology_edges
+     WHERE relationship_definition_id IS NOT NULL
+     GROUP BY source_id, target_id, type HAVING count(*) > 1`
+  );
+  for (const row of duplicateRelationships.rows) {
+    issues.push({
+      severity: "WARNING",
+      code: "DUPLICATE_RELATIONSHIP",
+      message: `${row.ids.length} relationships of type ${row.type} connect the same elements`,
+      elementIds: row.ids
+    });
+  }
+
+  const rulesMissingFields = await runQuery<{ id: string; name: string }>(
+    undefined,
+    `SELECT id, name FROM ontology_nodes
+     WHERE label = 'Rule' AND (
+       data->>'condition' IS NULL OR data->>'condition' = '' OR
+       data->>'action' IS NULL OR data->>'action' = ''
+     )`
+  );
+  for (const row of rulesMissingFields.rows) {
+    issues.push({
+      severity: "ERROR",
+      code: "RULE_MISSING_CONDITION_OR_ACTION",
+      message: `Rule "${row.name}" is missing a condition or an action`,
+      elementIds: [row.id]
+    });
+  }
+
+  const agentsWithoutCapability = await runQuery<{ id: string; name: string }>(
+    undefined,
+    `SELECT a.id, a.name FROM ontology_nodes a
+     WHERE a.label = 'Agent' AND NOT EXISTS (
+       SELECT 1 FROM ontology_edges e JOIN ontology_nodes c ON c.id = e.target_id
+       WHERE e.source_id = a.id AND e.type = 'HAS_CAPABILITY' AND c.label = 'Capability'
+     )`
+  );
+  for (const row of agentsWithoutCapability.rows) {
+    issues.push({
+      severity: "WARNING",
+      code: "AGENT_WITHOUT_CAPABILITY",
+      message: `Agent "${row.name}" has no Capability`,
+      elementIds: [row.id]
+    });
+  }
+
+  const agentsWithoutPolicy = await runQuery<{ id: string; name: string }>(
+    undefined,
+    `SELECT a.id, a.name FROM ontology_nodes a
+     WHERE a.label = 'Agent' AND NOT EXISTS (
+       SELECT 1 FROM ontology_edges e JOIN ontology_nodes p ON p.id = e.target_id
+       WHERE e.source_id = a.id AND e.type = 'GOVERNED_BY' AND p.label = 'Policy'
+     )`
+  );
+  for (const row of agentsWithoutPolicy.rows) {
+    issues.push({
+      severity: "WARNING",
+      code: "AGENT_WITHOUT_POLICY",
+      message: `Agent "${row.name}" has no Policy`,
+      elementIds: [row.id]
+    });
+  }
+
+  const statesWithoutTransition = await runQuery<{ id: string; name: string }>(
+    undefined,
+    `SELECT s.id, s.name FROM ontology_nodes s
+     WHERE s.label = 'State' AND (s.data->>'final')::boolean = false
+     AND NOT EXISTS (
+       SELECT 1 FROM ontology_edges e
+       WHERE (e.source_id = s.id OR e.target_id = s.id) AND e.type = 'TRANSITIONS_TO'
+     )`
+  );
+  for (const row of statesWithoutTransition.rows) {
+    issues.push({
+      severity: "WARNING",
+      code: "STATE_WITHOUT_TRANSITION",
+      message: `State "${row.name}" has no transition`,
+      elementIds: [row.id]
+    });
+  }
+
+  const status: ValidationResult["status"] = issues.some((i) => i.severity === "ERROR")
+    ? "ERROR"
+    : issues.length > 0
+      ? "WARNING"
+      : "VALID";
+
+  return { status, issues };
 }

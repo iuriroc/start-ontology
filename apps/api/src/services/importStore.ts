@@ -13,7 +13,7 @@ interface Entry {
  * gets a chance to review/confirm mode (merge vs replace) without
  * re-uploading the zip. In-memory only — a single API process is assumed
  * for this MVP; a restart drops any pending import, which is safe since
- * nothing has been written to Neo4j yet. */
+ * nothing has been written to Postgres yet. */
 const pending = new Map<string, Entry>();
 
 export function stagePlan(plan: RestorePlan): string {

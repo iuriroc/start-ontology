@@ -1,17 +1,17 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { closeDriver, verifyConnectivity } from "../src/neo4j/driver.js";
+import { closePool, verifyConnectivity } from "../src/postgres/pool.js";
 
 /**
  * End-to-end walk of the spec section 56 scenario: create the Seller /
  * Customer / Transaction ontology, relate them, version it, back it up,
- * restore it, and validate. Requires a live Neo4j (docker compose up -d
- * neo4j) — skipped automatically otherwise so `npm test` still passes in
+ * restore it, and validate. Requires a live PostgreSQL (docker compose up -d
+ * postgres) — skipped automatically otherwise so `npm test` still passes in
  * an environment with no database.
  */
-const neo4jAvailable = await verifyConnectivity();
+const dbAvailable = await verifyConnectivity();
 
-describe.skipIf(!neo4jAvailable)("ontology end-to-end scenario", () => {
+describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
   const app = buildApp();
 
   afterAll(async () => {
@@ -20,7 +20,9 @@ describe.skipIf(!neo4jAvailable)("ontology end-to-end scenario", () => {
 
   const json = (body: string) => JSON.parse(body);
 
-  it("builds, versions, backs up, restores and validates the ontology", async () => {
+  it(
+    "builds, versions, backs up, restores and validates the ontology",
+    async () => {
     const seller = await app.inject({
       method: "POST",
       url: "/api/entities",
@@ -239,9 +241,9 @@ describe.skipIf(!neo4jAvailable)("ontology end-to-end scenario", () => {
     // --- deleting an element with relationships requires force ---
     const blockedDelete = await app.inject({ method: "DELETE", url: `/api/entities/${sellerBody.id}` });
     expect(blockedDelete.statusCode).toBe(409);
-  });
+  }, 60000);
 });
 
 afterAll(async () => {
-  if (neo4jAvailable) await closeDriver();
+  if (dbAvailable) await closePool();
 });

@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import AdmZip from "adm-zip";
 import { env } from "../config/env.js";
-import { generateCypherExport } from "./cypherExport.js";
+import { generateSqlExport } from "./sqlExport.js";
 import { buildOntologySnapshot, countAllNodes, countAllRelationships } from "./ontologySnapshot.js";
 
 export interface BackupManifest {
@@ -21,13 +21,13 @@ function timestampForFilename(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}-${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
 }
 
-/** Builds ontology.json + ontology.cypher + manifest.json and zips them
+/** Builds ontology.json + ontology.sql + manifest.json and zips them
  * (spec sections 35-38). Returns the zip as a buffer plus the filename it
  * should be saved/served as; the caller decides where it ends up. */
 export async function createBackup(): Promise<{ filename: string; buffer: Buffer }> {
   const snapshot = await buildOntologySnapshot();
   const ontologyJson = JSON.stringify(snapshot, null, 2);
-  const cypher = await generateCypherExport(snapshot);
+  const sql = await generateSqlExport(snapshot);
 
   const checksum = createHash("sha256").update(ontologyJson).digest("hex");
   const [nodeCount, relationshipCount] = await Promise.all([
@@ -47,7 +47,7 @@ export async function createBackup(): Promise<{ filename: string; buffer: Buffer
 
   const zip = new AdmZip();
   zip.addFile("ontology.json", Buffer.from(ontologyJson, "utf-8"));
-  zip.addFile("ontology.cypher", Buffer.from(cypher, "utf-8"));
+  zip.addFile("ontology.sql", Buffer.from(sql, "utf-8"));
   zip.addFile("manifest.json", Buffer.from(JSON.stringify(manifest, null, 2), "utf-8"));
 
   const filename = `ontology-backup-${timestampForFilename(new Date())}.zip`;

@@ -13,7 +13,7 @@ interface PropertiesEditorProps {
 }
 
 /** Section 31: lets the user add typed properties to an Entity without
- * writing any Cypher — plain name/type/required rows. */
+ * writing any SQL — plain name/type/required rows. */
 export function PropertiesEditor({ value, onChange }: PropertiesEditorProps) {
   const update = (index: number, patch: Partial<EntityPropertyDraft>) => {
     onChange(value.map((p, i) => (i === index ? { ...p, ...patch } : p)));

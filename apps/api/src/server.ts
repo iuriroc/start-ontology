@@ -1,7 +1,7 @@
 import { buildApp } from "./app.js";
 import { env } from "./config/env.js";
-import { closeDriver, verifyConnectivity } from "./neo4j/driver.js";
-import { runMigrations } from "./neo4j/migrations.js";
+import { closePool, verifyConnectivity } from "./postgres/pool.js";
+import { runMigrations } from "./postgres/migrations.js";
 
 async function main() {
   const app = buildApp();
@@ -10,7 +10,7 @@ async function main() {
   if (connected) {
     await runMigrations(app.log);
   } else {
-    app.log.warn("Neo4j is not reachable at boot — constraints/indexes were not applied. The API will still start; /api/health will report degraded until Neo4j is available.");
+    app.log.warn("PostgreSQL is not reachable at boot — migrations were not applied. The API will still start; /api/health will report degraded until PostgreSQL is available.");
   }
 
   await app.listen({ port: env.API_PORT, host: "0.0.0.0" });
@@ -18,7 +18,7 @@ async function main() {
   const shutdown = async (signal: string) => {
     app.log.info({ signal }, "shutting down");
     await app.close();
-    await closeDriver();
+    await closePool();
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));

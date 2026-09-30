@@ -1,19 +1,18 @@
 services:
-  neo4j:
-    image: neo4j:5-community
-    container_name: ontology-neo4j
+  postgres:
+    image: postgres:16-alpine
+    container_name: ontology-postgres
     restart: unless-stopped
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
     environment:
-      NEO4J_AUTH: ${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-change-me}
-      NEO4J_PLUGINS: '[]'
+      POSTGRES_USER: ${POSTGRES_USER:-ontology}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-ontology}
     volumes:
-      - neo4j_data:/data
-      - neo4j_logs:/logs
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ontology} -d ${POSTGRES_DB:-ontology}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -25,16 +24,14 @@ services:
     container_name: ontology-api
     restart: unless-stopped
     depends_on:
-      neo4j:
+      postgres:
         condition: service_healthy
     ports:
       - "3001:3001"
     environment:
       NODE_ENV: production
       API_PORT: 3001
-      NEO4J_URI: bolt://neo4j:7687
-      NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-change-me}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ontology}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-ontology}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
     volumes:
       - ./backups:/app/backups
@@ -53,5 +50,4 @@ services:
       - "5173:80"
 
 volumes:
-  neo4j_data:
-  neo4j_logs:
+  postgres_data:

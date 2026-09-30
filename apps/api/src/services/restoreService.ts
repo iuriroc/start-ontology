@@ -1,9 +1,10 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import AdmZip from "adm-zip";
+import type { PoolClient } from "pg";
 import { ONTOLOGY_LABELS } from "@ontology-builder/shared";
 import { badRequest } from "../errors.js";
-import { getSession } from "../neo4j/driver.js";
-import { serialize, type NodeProps } from "../repositories/nodeRepository.js";
+import { withTransaction } from "../postgres/transaction.js";
+import { splitColumns, type NodeProps } from "../repositories/nodeRepository.js";
 import {
   manifestSchema,
   ontologySnapshotSchema,
@@ -14,11 +15,9 @@ export interface RestorePlan {
   snapshot: OntologySnapshot;
 }
 
-const JSON_FIELDS_BY_LABEL: Record<string, string[]> = { Entity: ["properties"] };
-
 /**
  * Runs the full validation pipeline from spec section 39 against an
- * uploaded backup zip, stopping at the first failure. Never touches Neo4j —
+ * uploaded backup zip, stopping at the first failure. Never touches Postgres —
  * that only happens once `restore()` is called with an already-validated
  * plan and an explicit mode.
  */
@@ -181,88 +180,105 @@ function validateVersionReferences(snapshot: OntologySnapshot): void {
   }
 }
 
-async function wipeOntology(): Promise<void> {
-  const session = getSession();
-  try {
-    await session.run(`MATCH (n) WHERE any(l IN labels(n) WHERE l IN $labels) DETACH DELETE n`, {
-      labels: [...ONTOLOGY_LABELS]
-    });
-  } finally {
-    await session.close();
-  }
+async function wipeOntology(client: PoolClient): Promise<void> {
+  await client.query(`DELETE FROM ontology_nodes`);
+  await client.query(`DELETE FROM ontology_versions`);
 }
 
-async function upsertNodes(label: string, items: NodeProps[]): Promise<void> {
-  if (items.length === 0) return;
-  const jsonFields = JSON_FIELDS_BY_LABEL[label] ?? [];
-  const session = getSession();
-  try {
-    for (const item of items) {
-      const { id, ...rest } = item;
-      await session.run(`MERGE (n:${label} {id: $id}) SET n += $props`, {
-        id,
-        props: serialize(rest, jsonFields)
-      });
-    }
-  } finally {
-    await session.close();
-  }
+async function upsertNode(client: PoolClient, label: string, item: NodeProps): Promise<void> {
+  const { id, createdAt, updatedAt, ...rest } = item;
+  const { known, rest: data } = splitColumns(rest);
+  await client.query(
+    `INSERT INTO ontology_nodes (id, label, name, description, status, domain, version, data, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     ON CONFLICT (id) DO UPDATE SET
+       label = EXCLUDED.label, name = EXCLUDED.name, description = EXCLUDED.description,
+       status = EXCLUDED.status, domain = EXCLUDED.domain, version = EXCLUDED.version,
+       data = EXCLUDED.data, created_at = EXCLUDED.created_at, updated_at = EXCLUDED.updated_at`,
+    [
+      id,
+      label,
+      known.name ?? null,
+      known.description ?? null,
+      known.status ?? "DRAFT",
+      known.domain ?? null,
+      known.version ?? "0.1.0",
+      JSON.stringify(data),
+      createdAt,
+      updatedAt
+    ]
+  );
 }
 
-/** Writes an already-validated snapshot into Neo4j. `merge` upserts by id
- * (existing data outside the backup is left alone); `replace` first wipes
- * every ontology label, then upserts — never called without the plan
- * having passed validateBackupZip first. */
+async function upsertVersion(client: PoolClient, item: NodeProps): Promise<void> {
+  await client.query(
+    `INSERT INTO ontology_versions (id, version, description, created_by, status, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (id) DO UPDATE SET
+       version = EXCLUDED.version, description = EXCLUDED.description,
+       created_by = EXCLUDED.created_by, status = EXCLUDED.status, created_at = EXCLUDED.created_at`,
+    [item.id, item.version, item.description ?? null, item.createdBy ?? null, item.status ?? "DRAFT", item.createdAt]
+  );
+}
+
+/** Writes an already-validated snapshot into Postgres, inside a single
+ * transaction (`merge` upserts by id, existing data outside the backup is
+ * left alone; `replace` first wipes every table, then upserts) — never
+ * called without the plan having passed validateBackupZip first. */
 export async function restore(plan: RestorePlan, mode: "merge" | "replace"): Promise<void> {
   const { snapshot } = plan;
-  if (mode === "replace") await wipeOntology();
+  const nodeCollections: Array<[string, NodeProps[]]> = [
+    ["Entity", snapshot.entities],
+    ["Concept", snapshot.concepts],
+    ["RelationshipDefinition", snapshot.relationships],
+    ["Rule", snapshot.rules],
+    ["State", snapshot.states],
+    ["Capability", snapshot.capabilities],
+    ["Agent", snapshot.agents],
+    ["Policy", snapshot.policies],
+    ["Issue", snapshot.issues],
+    ["Handoff", snapshot.handoffs],
+    ["Decision", snapshot.decisions],
+    ["Execution", snapshot.executions],
+    ["LearningEvent", snapshot.learningEvents]
+  ];
 
-  await upsertNodes("Entity", snapshot.entities);
-  await upsertNodes("Concept", snapshot.concepts);
-  await upsertNodes("RelationshipDefinition", snapshot.relationships);
-  await upsertNodes("Rule", snapshot.rules);
-  await upsertNodes("State", snapshot.states);
-  await upsertNodes("Capability", snapshot.capabilities);
-  await upsertNodes("Agent", snapshot.agents);
-  await upsertNodes("Policy", snapshot.policies);
-  await upsertNodes("Issue", snapshot.issues);
-  await upsertNodes("Handoff", snapshot.handoffs);
-  await upsertNodes("Decision", snapshot.decisions);
-  await upsertNodes("Execution", snapshot.executions);
-  await upsertNodes("LearningEvent", snapshot.learningEvents);
-  await upsertNodes("OntologyVersion", snapshot.versions);
+  await withTransaction(async (client) => {
+    if (mode === "replace") await wipeOntology(client);
 
-  const session = getSession();
-  try {
+    for (const [label, items] of nodeCollections) {
+      for (const item of items) await upsertNode(client, label, item);
+    }
+    for (const version of snapshot.versions) await upsertVersion(client, version);
+
     for (const rel of snapshot.relationships) {
-      await session.run(
-        `MATCH (a:${rel.sourceLabel} {id: $sourceId}), (b:${rel.targetLabel} {id: $targetId})
-         MERGE (a)-[r:${rel.type} {relationshipDefinitionId: $defId}]->(b)
-         SET r.cardinality = $cardinality`,
-        {
-          sourceId: rel.sourceId,
-          targetId: rel.targetId,
-          defId: rel.id,
-          cardinality: rel.cardinality
-        }
+      await client.query(
+        `INSERT INTO ontology_edges (id, source_id, target_id, type, relationship_definition_id, cardinality)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (relationship_definition_id) WHERE relationship_definition_id IS NOT NULL
+         DO UPDATE SET source_id = EXCLUDED.source_id, target_id = EXCLUDED.target_id,
+           type = EXCLUDED.type, cardinality = EXCLUDED.cardinality`,
+        [randomUUID(), rel.sourceId, rel.targetId, rel.type, rel.id, rel.cardinality]
       );
     }
     for (const handoff of snapshot.handoffs) {
-      await session.run(
-        `MATCH (h:Handoff {id: $handoffId}), (from:Agent {id: $fromId}), (to:Agent {id: $toId})
-         MERGE (h)-[:FROM_AGENT]->(from)
-         MERGE (h)-[:TO_AGENT]->(to)`,
-        { handoffId: handoff.id, fromId: handoff.fromAgentId, toId: handoff.toAgentId }
+      await client.query(
+        `INSERT INTO ontology_edges (id, source_id, target_id, type) VALUES ($1, $2, $3, 'FROM_AGENT')
+         ON CONFLICT (source_id, target_id, type) WHERE relationship_definition_id IS NULL DO NOTHING`,
+        [randomUUID(), handoff.id, handoff.fromAgentId]
+      );
+      await client.query(
+        `INSERT INTO ontology_edges (id, source_id, target_id, type) VALUES ($1, $2, $3, 'TO_AGENT')
+         ON CONFLICT (source_id, target_id, type) WHERE relationship_definition_id IS NULL DO NOTHING`,
+        [randomUUID(), handoff.id, handoff.toAgentId]
       );
     }
     for (const entry of snapshot.versionContents) {
-      await session.run(
-        `MATCH (v:OntologyVersion {id: $versionId}), (el:${entry.label} {id: $elementId})
-         MERGE (v)-[:CONTAINS]->(el)`,
-        { versionId: entry.versionId, elementId: entry.elementId }
+      await client.query(
+        `INSERT INTO version_contents (version_id, node_id) VALUES ($1, $2)
+         ON CONFLICT (version_id, node_id) DO NOTHING`,
+        [entry.versionId, entry.elementId]
       );
     }
-  } finally {
-    await session.close();
-  }
+  });
 }

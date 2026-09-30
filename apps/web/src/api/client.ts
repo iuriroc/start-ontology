@@ -13,7 +13,7 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE_URL}/api${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers }
+    headers: init?.body === undefined ? init?.headers : { "Content-Type": "application/json", ...init?.headers }
   });
 
   if (!response.ok) {

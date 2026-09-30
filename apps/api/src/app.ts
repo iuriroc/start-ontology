@@ -12,7 +12,7 @@ export function buildApp(): FastifyInstance {
       level: env.NODE_ENV === "test" ? "silent" : "info",
       // Never log credentials, even if a header/body field is misnamed.
       redact: {
-        paths: ["req.headers.authorization", "*.password", "*.NEO4J_PASSWORD", "*.token"],
+        paths: ["req.headers.authorization", "*.password", "*.DATABASE_URL", "*.token"],
         censor: "[REDACTED]"
       }
     }
