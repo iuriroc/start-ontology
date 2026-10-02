@@ -22,7 +22,8 @@ COPY packages/shared packages/shared
 COPY apps/api apps/api
 RUN npm run build --workspace=packages/shared \
  && npm run build --workspace=apps/api \
- && npm prune --omit=dev
+ && npm prune --omit=dev \
+ && mkdir -p apps/api/node_modules
 
 # ---- Stage 2: runtime ------------------------------------------------------
 FROM node:20-alpine
@@ -31,6 +32,11 @@ ENV NODE_ENV=production \
     API_PORT=3001
 
 COPY --from=build /app/node_modules ./node_modules
+# npm workspaces hoists most deps to the root node_modules, but nests any
+# whose version conflicts with another package's requirement (e.g. ajv is
+# pinned to ^8 here vs ^6 elsewhere) under the workspace's own node_modules —
+# that nested copy must ship too, or the nested package 404s at runtime.
+COPY --from=build /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build /app/packages/shared ./packages/shared
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/api/package.json ./apps/api/package.json
