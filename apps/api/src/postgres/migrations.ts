@@ -3,7 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyBaseLogger } from "fastify";
-import { withTransaction } from "./transaction.js";
+import { withOwnerTransaction } from "./transaction.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 function resolveMigrationsDir(): string {
@@ -35,7 +35,7 @@ export async function runMigrations(logger: FastifyBaseLogger): Promise<void> {
     return;
   }
 
-  await withTransaction(async (client) => {
+  await withOwnerTransaction(async (client) => {
     for (const file of files) {
       const content = await readFile(path.join(MIGRATIONS_DIR, file), "utf-8");
       await client.query(stripComments(content));

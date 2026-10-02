@@ -15,7 +15,8 @@
     "test": "npm run test --workspace=apps/api && npm run test --workspace=apps/web",
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write .",
-    "typecheck": "npm run build --workspace=packages/shared && npm run typecheck --workspace=apps/api && npm run typecheck --workspace=apps/web"
+    "typecheck": "npm run build --workspace=packages/shared && npm run typecheck --workspace=apps/api && npm run typecheck --workspace=apps/web",
+    "db:full-sql": "node scripts/build-full-sql.mjs"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.18.0",

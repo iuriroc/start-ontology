@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import AdmZip from "adm-zip";
 import type { PoolClient } from "pg";
 import { ONTOLOGY_LABELS } from "@ontology-builder/shared";
-import { badRequest } from "../errors.js";
+import { badRequest, conflict } from "../errors.js";
 import { withTransaction } from "../postgres/transaction.js";
 import { splitColumns, type NodeProps } from "../repositories/nodeRepository.js";
 import {
@@ -243,6 +243,7 @@ export async function restore(plan: RestorePlan, mode: "merge" | "replace"): Pro
     ["LearningEvent", snapshot.learningEvents]
   ];
 
+  try {
   await withTransaction(async (client) => {
     if (mode === "replace") await wipeOntology(client);
 
@@ -281,4 +282,14 @@ export async function restore(plan: RestorePlan, mode: "merge" | "replace"): Pro
       );
     }
   });
+  } catch (err) {
+    // RLS rejects an upsert onto an id that already belongs to another business.
+    if ((err as { code?: string }).code === "42501") {
+      throw conflict(
+        "ID_BELONGS_TO_ANOTHER_BUSINESS",
+        "O backup contém ids que já pertencem a outro negócio. Para copiar uma ontologia entre negócios use POST /api/businesses/:id/clone."
+      );
+    }
+    throw err;
+  }
 }

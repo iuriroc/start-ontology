@@ -1,8 +1,17 @@
 import { createHash } from "node:crypto";
 import AdmZip from "adm-zip";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
 import { closePool } from "../src/postgres/pool.js";
+
+// These tests deliberately need no database. The tenant plugin resolves
+// X-Business-Id through the business registry, so stand in an active business.
+const TEST_BUSINESS = "11111111-1111-1111-1111-111111111111";
+vi.mock("../src/repositories/businessRepository.js", () => ({
+  businessRepository: {
+    resolve: async () => ({ id: "11111111-1111-1111-1111-111111111111", slug: "teste", name: "Teste", status: "ACTIVE", settings: {} })
+  }
+}));
 
 /**
  * The restore validation pipeline (spec section 39) never touches Postgres
@@ -71,7 +80,7 @@ describe("POST /api/import validation pipeline", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/import",
-      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      headers: { "x-business-id": TEST_BUSINESS, "content-type": `multipart/form-data; boundary=${boundary}` },
       payload: Buffer.from(`--${boundary}--\r\n`)
     });
     expect(response.statusCode).toBe(400);
@@ -81,7 +90,7 @@ describe("POST /api/import validation pipeline", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/import",
-      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      headers: { "x-business-id": TEST_BUSINESS, "content-type": `multipart/form-data; boundary=${boundary}` },
       payload: multipartPayload(Buffer.from("not a zip"), boundary)
     });
     expect(response.statusCode).toBe(400);
@@ -94,7 +103,7 @@ describe("POST /api/import validation pipeline", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/import",
-      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      headers: { "x-business-id": TEST_BUSINESS, "content-type": `multipart/form-data; boundary=${boundary}` },
       payload: multipartPayload(zip.toBuffer(), boundary)
     });
     expect(response.statusCode).toBe(400);
@@ -113,7 +122,7 @@ describe("POST /api/import validation pipeline", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/import",
-      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      headers: { "x-business-id": TEST_BUSINESS, "content-type": `multipart/form-data; boundary=${boundary}` },
       payload: multipartPayload(zip.toBuffer(), boundary)
     });
     expect(response.statusCode).toBe(400);
@@ -126,7 +135,7 @@ describe("POST /api/import validation pipeline", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/import",
-      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      headers: { "x-business-id": TEST_BUSINESS, "content-type": `multipart/form-data; boundary=${boundary}` },
       payload: multipartPayload(zipBuffer, boundary)
     });
     expect(response.statusCode).toBe(400);
@@ -139,7 +148,7 @@ describe("POST /api/import validation pipeline", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/import",
-      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      headers: { "x-business-id": TEST_BUSINESS, "content-type": `multipart/form-data; boundary=${boundary}` },
       payload: multipartPayload(zipBuffer, boundary)
     });
     expect(response.statusCode).toBe(200);
@@ -155,7 +164,7 @@ describe("POST /api/import validation pipeline", () => {
     const imported = await app.inject({
       method: "POST",
       url: "/api/import",
-      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      headers: { "x-business-id": TEST_BUSINESS, "content-type": `multipart/form-data; boundary=${boundary}` },
       payload: multipartPayload(zipBuffer, boundary)
     });
     const { importId } = JSON.parse(imported.body);
@@ -163,6 +172,7 @@ describe("POST /api/import validation pipeline", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/restore",
+      headers: { "x-business-id": TEST_BUSINESS },
       payload: { importId, mode: "replace" }
     });
     expect(response.statusCode).toBe(400);
@@ -173,6 +183,7 @@ describe("POST /api/import validation pipeline", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/restore",
+      headers: { "x-business-id": TEST_BUSINESS },
       payload: { importId: "11111111-1111-1111-1111-111111111111", mode: "merge" }
     });
     expect(response.statusCode).toBe(400);

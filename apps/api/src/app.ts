@@ -3,6 +3,7 @@ import { env } from "./config/env.js";
 import corsPlugin from "./plugins/cors.js";
 import securityPlugin from "./plugins/security.js";
 import errorHandlerPlugin from "./plugins/errorHandler.js";
+import tenantPlugin from "./plugins/tenant.js";
 import { registerAllRoutes } from "./routes/index.js";
 
 export function buildApp(): FastifyInstance {
@@ -21,6 +22,7 @@ export function buildApp(): FastifyInstance {
   app.register(corsPlugin);
   app.register(securityPlugin);
   app.register(errorHandlerPlugin);
+  app.register(tenantPlugin);
 
   app.register(
     async (instance) => {

@@ -4,6 +4,7 @@ import { recordAudit } from "../audit/auditLog.js";
 import { badRequest } from "../errors.js";
 import { discardPlan, stagePlan, takePlan } from "../services/importStore.js";
 import { restore, validateBackupZip } from "../services/restoreService.js";
+import { requireBusinessId } from "../postgres/tenantContext.js";
 import { parseWith } from "../validators/parse.js";
 
 const restoreBodySchema = z.object({
@@ -58,7 +59,7 @@ export function registerRestoreRoutes(app: FastifyInstance): void {
       throw err;
     }
 
-    const importId = stagePlan(plan);
+    const importId = stagePlan(plan, requireBusinessId());
     await recordAudit(
       { action: "IMPORT", resourceType: "Ontology", resourceId: importId, result: "SUCCESS" },
       app.log
@@ -76,7 +77,7 @@ export function registerRestoreRoutes(app: FastifyInstance): void {
       );
     }
 
-    const plan = takePlan(body.importId);
+    const plan = takePlan(body.importId, requireBusinessId());
     if (!plan) {
       throw badRequest(
         "IMPORT_NOT_FOUND",

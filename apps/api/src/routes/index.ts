@@ -11,9 +11,15 @@ import { registerOntologyRoutes } from "./ontology.js";
 import { registerVersionRoutes } from "./versions.js";
 import { registerBackupRoutes } from "./backup.js";
 import { registerRestoreRoutes } from "./restore.js";
+import { registerBusinessRoutes } from "./businesses.js";
+import { registerHarnessRoutes } from "./harness.js";
+import { registerGatewayRoutes } from "./gateway.js";
 
 export function registerAllRoutes(app: FastifyInstance): void {
   registerHealthRoutes(app);
+  registerBusinessRoutes(app);
+  registerHarnessRoutes(app);
+  registerGatewayRoutes(app);
 
   for (const resource of SIMPLE_RESOURCES) {
     const repo = createNodeRepository(resource.label);

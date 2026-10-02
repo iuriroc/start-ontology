@@ -75,7 +75,7 @@ docker compose up -d postgres
 
 ## 7. PostgreSQL
 
-Tables, constraints and indexes live in `postgres/migrations/*.sql` (`ontology_nodes` for every
+Tables, constraints and indexes live in `postgres/migrations/*.sql` (001-002 ontology core, 003 businesses + RLS, 004 harness; see sections 17-19) (`ontology_nodes` for every
 element except `OntologyVersion`, `ontology_edges` for real graph edges, `ontology_versions` +
 `version_contents` for versioning, plus `graph_layout` and `audit_log`). The API runs every
 migration file — in filename order, all `IF NOT EXISTS`, inside one transaction — on boot, so
@@ -188,7 +188,7 @@ Customer -[PERFORMED]-> Transaction edge.
 
 ## 16. API
 
-All routes are under `/api`. See `apps/api/src/routes/*.ts`. Summary:
+All routes are under `/api`. Every route except `/api/health`, `/api/businesses*` and `/api/gateway/*` requires the `X-Business-Id` header (section 17). See `apps/api/src/routes/*.ts`. Summary:
 
 ```
 GET    /api/health
@@ -231,6 +231,63 @@ has relationships, unless `?force=true` is also passed — mirroring the "this e
 relationships, delete anyway?" confirmation in the UI.
 
 Errors are always `{ "error": { "code": "...", "message": "..." } }`, never a raw stack trace.
+
+## 17. Negócios (multi-tenant)
+
+Toda a hierarquia pertence a um **Negócio** (`businesses`). Cada negócio tem a sua própria ontologia,
+ferramentas, guardrails, auditoria, versões, layout do grafo e chaves de runtime; nada vaza entre eles.
+
+- **Isolamento no banco, não no código.** Toda tabela de dados tem `business_id` e Row-Level Security
+  (`business_id = current_business_id()`). A API roda *cada* comando como o papel sem privilégios
+  `ontology_app` com `app.business_id` definido na transação (`SET LOCAL ROLE` + `set_config(..., true)`),
+  então vale mesmo com um usuário de conexão superuser (que ignoraria RLS). Sem negócio no contexto o banco
+  responde vazio e recusa inserts (fail closed).
+- **FKs compostas** `(id, business_id)` impedem uma aresta, versão ou ferramenta de apontar para um nó de outro negócio.
+- **Todas as rotas de ontologia exigem o header `X-Business-Id`** (id ou slug). Exceções: `/api/health`,
+  `/api/businesses*` (cadastro de negócios) e `/api/gateway/*` (o negócio vem da chave Bearer do runtime).
+- Negócio arquivado responde 403; apagar de vez exige `?hard=true&confirmSlug=<slug>` e remove tudo dele em cascata.
+- **Clonar**: `POST /api/businesses/:id/clone { sourceBusinessId }` copia ontologia (sem histórico operacional),
+  ferramentas, guardrails e casos de avaliação para um negócio **vazio**, com ids novos. Chaves nunca são copiadas.
+- Backup/restore/export são por negócio. Restaurar um backup cujos ids pertencem a outro negócio retorna
+  `409 ID_BELONGS_TO_ANOTHER_BUSINESS` (para copiar entre negócios use o clone).
+- Bancos antigos (um negócio só) são migrados automaticamente: tudo vai para o negócio `default`.
+
+## 18. Harness do agente
+
+O harness liga a ontologia a um agente que executa tarefas de verdade, com guardrails que **o gateway aplica**.
+
+```
+Runtime do agente (Paperclip / n8n / ...)   ── Bearer hk_... ──▶  /api/gateway/*
+        │ GET  /gateway/bundle                  ontologia compilada (só elementos ATIVOS)
+        │ GET  /gateway/agents/:agent/context   system prompt do agente
+        │ POST /gateway/authorize               decisão apenas (o runtime executa)
+        └ POST /gateway/execute                 decisão + execução (executor http/mock)
+```
+
+Decisão por chamada: **ALLOW / DENY / ESCALATE**, *deny-by-default*. Uma chamada só é permitida se a ferramenta está
+ativa, o agente tem a conexão `HAS_CAPABILITY` para a Habilidade dela, os argumentos respeitam o JSON Schema do
+contrato e nenhum guardrail objeta. Negar vence escalar, que vence permitir.
+
+| Guardrail | Efeito |
+| --- | --- |
+| `DENY` | bloqueia sempre (no escopo definido) |
+| `REQUIRE_VERIFICATION` | nega se o runtime não confirmou todos os fatores (`context.verifiedFactors`), ex.: `cpf`, `name`, `card_last4` |
+| `LIMIT` | acima de `max` em um argumento: nega ou escala (`escalateToAgentId`) |
+| `REQUIRE_APPROVAL` | escala, a menos que o runtime informe `context.approval.approvedBy` |
+
+- **Quem confirma a verificação é o runtime, não o modelo**: `verifiedFactors`/`approval` vêm do código confiável que chama o gateway.
+- **ESCALATE** abre um nó `Handoff` (origem `GATEWAY`) do agente para o agente de escalonamento; esses handoffs de runtime ficam fora do bundle e do clone.
+- **Auditoria imutável** (`harness_calls`): toda decisão é gravada com CPF/cartão/senha/token mascarados; o papel da API não tem UPDATE/DELETE nessa tabela.
+- **Executor `http`** só chama hosts de `settings.allowedHosts` do negócio, não segue redirects, tem timeout e só lê variáveis `${ENV:HARNESS_*}` nos headers.
+- **Avaliação**: casos de teste por negócio (`/api/harness/eval-cases`) rodam no gateway real em modo `EVAL` (nada executa). Rode `POST /api/harness/eval-runs` antes de promover para produção.
+- **Bundle**: `GET /api/harness/compile` (pré-visualiza) e `POST /api/harness/bundles` (fixa); o checksum é determinístico. Detalhes de execução (URLs, headers) nunca entram no bundle.
+
+Rotas de administração (com `X-Business-Id`): `/api/harness/{tools,guardrails,calls,simulate,compile,bundles,eval-cases,eval-runs,api-keys,agents}`.
+
+## 19. Criar o banco de uma vez (DBeaver)
+
+`postgres/full_setup.sql` reúne todas as migrations em um único script idempotente. No DBeaver: conecte no banco
+`ontology` e rode como script (**Alt+X**). Para regenerar depois de mudar uma migration: `npm run db:full-sql`.
 
 ## Security notes
 

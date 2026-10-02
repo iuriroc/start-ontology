@@ -120,7 +120,7 @@ export const graphRepository = {
     await runQuery(
       undefined,
       `INSERT INTO graph_layout (id, positions, updated_at) VALUES ('singleton', $1, now())
-       ON CONFLICT (id) DO UPDATE SET positions = EXCLUDED.positions, updated_at = now()`,
+       ON CONFLICT (business_id) DO UPDATE SET positions = EXCLUDED.positions, updated_at = now()`,
       [JSON.stringify(positions)]
     );
   },

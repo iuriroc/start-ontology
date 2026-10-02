@@ -16,8 +16,9 @@ function fromRow(row: VersionRow): NodeProps {
   return {
     id: row.id,
     version: row.version,
-    description: row.description,
-    createdBy: row.created_by,
+    // Omit nulls: the shared schema (and therefore backup/restore) treats them as absent.
+    ...(row.description != null ? { description: row.description } : {}),
+    ...(row.created_by != null ? { createdBy: row.created_by } : {}),
     status: row.status,
     createdAt: row.created_at.toISOString()
   };

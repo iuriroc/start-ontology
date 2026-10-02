@@ -5,6 +5,7 @@ const TTL_MS = 10 * 60 * 1000;
 
 interface Entry {
   plan: RestorePlan;
+  businessId: string;
   expiresAt: number;
 }
 
@@ -16,15 +17,16 @@ interface Entry {
  * nothing has been written to Postgres yet. */
 const pending = new Map<string, Entry>();
 
-export function stagePlan(plan: RestorePlan): string {
+export function stagePlan(plan: RestorePlan, businessId: string): string {
   const id = randomUUID();
-  pending.set(id, { plan, expiresAt: Date.now() + TTL_MS });
+  pending.set(id, { plan, businessId, expiresAt: Date.now() + TTL_MS });
   return id;
 }
 
-export function takePlan(id: string): RestorePlan | undefined {
+export function takePlan(id: string, businessId: string): RestorePlan | undefined {
   const entry = pending.get(id);
-  if (!entry) return undefined;
+  // A plan staged by one business can never be committed by another.
+  if (!entry || entry.businessId !== businessId) return undefined;
   if (entry.expiresAt < Date.now()) {
     pending.delete(id);
     return undefined;

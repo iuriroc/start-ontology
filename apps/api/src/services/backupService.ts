@@ -4,12 +4,15 @@ import path from "node:path";
 import AdmZip from "adm-zip";
 import { env } from "../config/env.js";
 import { generateSqlExport } from "./sqlExport.js";
+import { requireBusinessId } from "../postgres/tenantContext.js";
+import { businessRepository } from "../repositories/businessRepository.js";
 import { buildOntologySnapshot, countAllNodes, countAllRelationships } from "./ontologySnapshot.js";
 
 export interface BackupManifest {
   format: "ontology-backup";
   formatVersion: "1.0";
   ontologyVersion: string | null;
+  business?: { id: string; slug: string };
   createdAt: string;
   nodeCount: number;
   relationshipCount: number;
@@ -27,7 +30,8 @@ function timestampForFilename(date: Date): string {
 export async function createBackup(): Promise<{ filename: string; buffer: Buffer }> {
   const snapshot = await buildOntologySnapshot();
   const ontologyJson = JSON.stringify(snapshot, null, 2);
-  const sql = await generateSqlExport(snapshot);
+  const business = await businessRepository.findById(requireBusinessId());
+  const sql = await generateSqlExport(snapshot, business ?? undefined);
 
   const checksum = createHash("sha256").update(ontologyJson).digest("hex");
   const [nodeCount, relationshipCount] = await Promise.all([
@@ -39,6 +43,7 @@ export async function createBackup(): Promise<{ filename: string; buffer: Buffer
     format: "ontology-backup",
     formatVersion: "1.0",
     ontologyVersion: snapshot.metadata.version,
+    ...(business ? { business: { id: business.id, slug: business.slug } } : {}),
     createdAt: snapshot.metadata.createdAt,
     nodeCount,
     relationshipCount,
@@ -50,7 +55,7 @@ export async function createBackup(): Promise<{ filename: string; buffer: Buffer
   zip.addFile("ontology.sql", Buffer.from(sql, "utf-8"));
   zip.addFile("manifest.json", Buffer.from(JSON.stringify(manifest, null, 2), "utf-8"));
 
-  const filename = `ontology-backup-${timestampForFilename(new Date())}.zip`;
+  const filename = `ontology-backup-${business?.slug ?? "business"}-${timestampForFilename(new Date())}.zip`;
   return { filename, buffer: zip.toBuffer() };
 }
 

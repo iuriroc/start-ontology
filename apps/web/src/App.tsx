@@ -8,12 +8,16 @@ import { OnboardingWizard } from "./pages/OnboardingWizard";
 import { RelationshipsPage } from "./pages/RelationshipsPage";
 import { ResourcePage } from "./pages/ResourcePage";
 import { VersionsPage } from "./pages/VersionsPage";
+import { BusinessesPage } from "./pages/BusinessesPage";
+import { HarnessPage } from "./pages/harness/HarnessPage";
 
 export function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
+        <Route path="businesses" element={<BusinessesPage />} />
+        <Route path="harness/:tab" element={<HarnessPage />} />
         <Route path="wizard" element={<OnboardingWizard />} />
         <Route path="ontology/relationships" element={<RelationshipsPage />} />
         <Route path="ontology/handoffs" element={<HandoffsPage />} />

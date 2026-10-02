@@ -109,9 +109,9 @@ export function BackupRestorePage() {
           <button className="btn btn-primary" onClick={() => void createBackup()} disabled={creatingBackup}>
             {creatingBackup ? "Gerando…" : "Gerar cópia de segurança"}
           </button>
-          <a className="btn" href={`${api.baseUrl}/api/export`}>
+          <button type="button" className="btn" onClick={() => void api.download("/export", "ontology-backup.zip")}>
             Baixar cópia (.zip)
-          </a>
+          </button>
         </div>
         {backupError && <div className="banner banner-error">{backupError}</div>}
         {backupResult && (

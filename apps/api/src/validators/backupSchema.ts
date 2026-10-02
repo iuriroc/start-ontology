@@ -21,6 +21,7 @@ export const manifestSchema = z.object({
   format: z.literal("ontology-backup"),
   formatVersion: z.literal("1.0"),
   ontologyVersion: z.string().nullable(),
+  business: z.object({ id: z.string(), slug: z.string() }).optional(),
   createdAt: z.string(),
   nodeCount: z.number(),
   relationshipCount: z.number(),

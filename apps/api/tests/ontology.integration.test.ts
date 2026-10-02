@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { closePool, verifyConnectivity } from "../src/postgres/pool.js";
 
@@ -13,6 +13,21 @@ const dbAvailable = await verifyConnectivity();
 
 describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
   const app = buildApp();
+  let businessId = "";
+  const inject = (opts: Parameters<typeof app.inject>[0]) => {
+    const o = opts as { headers?: Record<string, string> };
+    return app.inject({ ...(opts as object), headers: { "x-business-id": businessId, ...o.headers } } as never);
+  };
+
+  beforeAll(async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/businesses",
+      payload: { name: `Cenário ${Date.now()}`, slug: `cenario-${Date.now()}` }
+    });
+    expect(res.statusCode).toBe(201);
+    businessId = JSON.parse(res.body).id;
+  });
 
   afterAll(async () => {
     await app.close();
@@ -23,7 +38,7 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
   it(
     "builds, versions, backs up, restores and validates the ontology",
     async () => {
-    const seller = await app.inject({
+    const seller = await inject({
       method: "POST",
       url: "/api/entities",
       payload: { name: "Seller", domain: "commerce", status: "ACTIVE" }
@@ -31,7 +46,7 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
     expect(seller.statusCode).toBe(201);
     const sellerBody = json(seller.body);
 
-    const customer = await app.inject({
+    const customer = await inject({
       method: "POST",
       url: "/api/entities",
       payload: {
@@ -44,7 +59,7 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
     expect(customer.statusCode).toBe(201);
     const customerBody = json(customer.body);
 
-    const transaction = await app.inject({
+    const transaction = await inject({
       method: "POST",
       url: "/api/entities",
       payload: { name: "Transaction", domain: "commerce", status: "ACTIVE" }
@@ -52,7 +67,7 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
     expect(transaction.statusCode).toBe(201);
     const transactionBody = json(transaction.body);
 
-    const ownsRel = await app.inject({
+    const ownsRel = await inject({
       method: "POST",
       url: "/api/relationships",
       payload: {
@@ -67,7 +82,7 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
     });
     expect(ownsRel.statusCode).toBe(201);
 
-    const performedRel = await app.inject({
+    const performedRel = await inject({
       method: "POST",
       url: "/api/relationships",
       payload: {
@@ -82,14 +97,14 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
     });
     expect(performedRel.statusCode).toBe(201);
 
-    const concept = await app.inject({
+    const concept = await inject({
       method: "POST",
       url: "/api/concepts",
       payload: { name: "HighValueSeller", status: "ACTIVE" }
     });
     expect(concept.statusCode).toBe(201);
 
-    const rule = await app.inject({
+    const rule = await inject({
       method: "POST",
       url: "/api/rules",
       payload: {
@@ -101,14 +116,14 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
     });
     expect(rule.statusCode).toBe(201);
 
-    const state = await app.inject({
+    const state = await inject({
       method: "POST",
       url: "/api/states",
       payload: { name: "ACTIVE", initial: true, final: true, status: "ACTIVE" }
     });
     expect(state.statusCode).toBe(201);
 
-    const capability = await app.inject({
+    const capability = await inject({
       method: "POST",
       url: "/api/capabilities",
       payload: { name: "Read Transaction", code: "READ_TRANSACTION", status: "ACTIVE" }
@@ -116,7 +131,7 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
     expect(capability.statusCode).toBe(201);
     const capabilityBody = json(capability.body);
 
-    const agent = await app.inject({
+    const agent = await inject({
       method: "POST",
       url: "/api/agents",
       payload: { name: "SupportAgent", role: "support", status: "ACTIVE" }
@@ -124,7 +139,7 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
     expect(agent.statusCode).toBe(201);
     const agentBody = json(agent.body);
 
-    const policy = await app.inject({
+    const policy = await inject({
       method: "POST",
       url: "/api/policies",
       payload: { name: "ReadTransactionPolicy", effect: "ALLOW", status: "ACTIVE" }
@@ -132,7 +147,7 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
     expect(policy.statusCode).toBe(201);
     const policyBody = json(policy.body);
 
-    const hasCapability = await app.inject({
+    const hasCapability = await inject({
       method: "POST",
       url: "/api/relationships",
       payload: {
@@ -147,7 +162,7 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
     });
     expect(hasCapability.statusCode).toBe(201);
 
-    const governedBy = await app.inject({
+    const governedBy = await inject({
       method: "POST",
       url: "/api/relationships",
       payload: {
@@ -163,14 +178,14 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
     expect(governedBy.statusCode).toBe(201);
 
     // --- graph view ---
-    const graph = await app.inject({ method: "GET", url: "/api/ontology/graph" });
+    const graph = await inject({ method: "GET", url: "/api/ontology/graph" });
     expect(graph.statusCode).toBe(200);
     const graphBody = json(graph.body);
     expect(graphBody.nodes.length).toBeGreaterThanOrEqual(9);
     expect(graphBody.edges.some((e: { label: string }) => e.label === "OWNS")).toBe(true);
 
     // --- version ---
-    const version = await app.inject({
+    const version = await inject({
       method: "POST",
       url: "/api/versions",
       payload: { version: "1.0.0", description: "Initial ontology", createdBy: "test-suite" }
@@ -178,19 +193,19 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
     expect(version.statusCode).toBe(201);
     const versionBody = json(version.body);
 
-    const attach = await app.inject({
+    const attach = await inject({
       method: "POST",
       url: `/api/versions/${versionBody.id}/contents`,
       payload: { label: "Entity", elementId: sellerBody.id }
     });
     expect(attach.statusCode).toBe(200);
 
-    const publish = await app.inject({ method: "POST", url: `/api/versions/${versionBody.id}/publish` });
+    const publish = await inject({ method: "POST", url: `/api/versions/${versionBody.id}/publish` });
     expect(publish.statusCode).toBe(200);
     expect(json(publish.body).status).toBe("PUBLISHED");
 
     // --- edit an entity via the API ---
-    const editEntity = await app.inject({
+    const editEntity = await inject({
       method: "PUT",
       url: `/api/entities/${sellerBody.id}`,
       payload: { description: "Marketplace seller" }
@@ -199,7 +214,7 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
     expect(json(editEntity.body).description).toBe("Marketplace seller");
 
     // --- backup (export) ---
-    const exported = await app.inject({ method: "GET", url: "/api/export" });
+    const exported = await inject({ method: "GET", url: "/api/export" });
     expect(exported.statusCode).toBe(200);
     expect(exported.headers["content-type"]).toBe("application/zip");
     const zipBuffer = exported.rawPayload;
@@ -214,7 +229,7 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
       Buffer.from(`\r\n--${boundary}--\r\n`)
     ]);
 
-    const imported = await app.inject({
+    const imported = await inject({
       method: "POST",
       url: "/api/import",
       headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
@@ -225,7 +240,7 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
     expect(importedBody.valid).toBe(true);
     expect(importedBody.counts.entities).toBeGreaterThanOrEqual(3);
 
-    const restored = await app.inject({
+    const restored = await inject({
       method: "POST",
       url: "/api/restore",
       payload: { importId: importedBody.importId, mode: "merge" }
@@ -234,12 +249,12 @@ describe.skipIf(!dbAvailable)("ontology end-to-end scenario", () => {
     expect(json(restored.body).restored).toBe(true);
 
     // --- validate ---
-    const validation = await app.inject({ method: "GET", url: "/api/ontology/validate" });
+    const validation = await inject({ method: "GET", url: "/api/ontology/validate" });
     expect(validation.statusCode).toBe(200);
     expect(json(validation.body).status).not.toBe("ERROR");
 
     // --- deleting an element with relationships requires force ---
-    const blockedDelete = await app.inject({ method: "DELETE", url: `/api/entities/${sellerBody.id}` });
+    const blockedDelete = await inject({ method: "DELETE", url: `/api/entities/${sellerBody.id}` });
     expect(blockedDelete.statusCode).toBe(409);
   }, 60000);
 });
